@@ -1,0 +1,19 @@
+# OpenTofu / Terraform
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log
+**/crash.*.log
+
+# Local environment
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
