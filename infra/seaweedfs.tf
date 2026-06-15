@@ -12,6 +12,9 @@ resource "helm_release" "seaweedfs" {
           size         = "5Gi"
           storageClass = "local-path"
         }
+        nodeSelector = <<-EOT
+          kubernetes.io/hostname: pi-master
+          EOT
       }
 
       filer = {
@@ -20,6 +23,9 @@ resource "helm_release" "seaweedfs" {
           size         = "20Gi"
           storageClass = "local-path"
         }
+        nodeSelector = <<-EOT
+          kubernetes.io/hostname: pi-node-one
+          EOT
       }
 
       volume = {
@@ -31,6 +37,9 @@ resource "helm_release" "seaweedfs" {
             storageClass = "local-path"
           }
         ]
+        nodeSelector = <<-EOT
+          kubernetes.io/hostname: pi-node-two
+          EOT
       }
 
       s3 = {
