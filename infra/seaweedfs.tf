@@ -43,14 +43,9 @@ resource "helm_release" "seaweedfs" {
       }
 
       s3 = {
-        enabled    = true
-        enableAuth = true
-        credentials = {
-          admin = {
-            accessKey = var.s3_access_key
-            secretKey = var.s3_secret_key
-          }
-        }
+        enabled              = true
+        enableAuth           = true
+        existingConfigSecret = kubernetes_secret.seaweedfs_s3_config.metadata[0].name
         createBuckets = [
           { name = "nhl-bronze" },
           { name = "nhl-silver" },
