@@ -17,3 +17,7 @@
 # Editors
 .vscode/
 .idea/
+
+# Go build artifacts
+/ingest/ingest
+*.test
