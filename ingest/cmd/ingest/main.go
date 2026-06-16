@@ -51,7 +51,6 @@ func main() {
 			scheduleFailures++
 			continue
 		}
-		schedulesOK++
 		totalBytes += len(scheduleBody)
 
 		games, err := nhl.ParseGames(scheduleBody)
@@ -60,6 +59,7 @@ func main() {
 			scheduleFailures++
 			continue
 		}
+		schedulesOK++
 
 		var datePBPBytes, datePBPFailures int
 		for _, g := range games {

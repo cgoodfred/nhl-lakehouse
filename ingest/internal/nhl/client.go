@@ -71,10 +71,13 @@ type Game struct {
 
 func ParseGames(scheduleBody []byte) ([]Game, error) {
 	var sr struct {
-		Games []Game `json:"games"`
+		Games *[]Game `json:"games"`
 	}
 	if err := json.Unmarshal(scheduleBody, &sr); err != nil {
 		return nil, fmt.Errorf("unmarshal schedule: %w", err)
 	}
-	return sr.Games, nil
+	if sr.Games == nil {
+		return nil, fmt.Errorf("schedule response missing 'games' field")
+	}
+	return *sr.Games, nil
 }

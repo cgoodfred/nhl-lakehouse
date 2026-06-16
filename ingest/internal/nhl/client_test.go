@@ -10,16 +10,18 @@ import (
 
 func TestParseGames(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   []byte
-		wantLen int
-		wantErr bool
+		name      string
+		input     []byte
+		wantLen   int
+		wantErr   bool
+		wantFirst Game
 	}{
 		{
-			name:    "single game",
-			input:   []byte(`{"games": [{"id": 2025020740, "season": 20252026}]}`),
-			wantLen: 1,
-			wantErr: false,
+			name:      "single game",
+			input:     []byte(`{"games": [{"id": 2025020740, "season": 20252026}]}`),
+			wantLen:   1,
+			wantErr:   false,
+			wantFirst: Game{ID: 2025020740, Season: 20252026},
 		},
 		{
 			name:    "empty games",
@@ -28,10 +30,11 @@ func TestParseGames(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "multiple games",
-			input:   []byte(`{"games": [{"id": 2025020741, "season": 20252026}, {"id": 2026020742, "season": 20252026}]}`),
-			wantLen: 2,
-			wantErr: false,
+			name:      "multiple games",
+			input:     []byte(`{"games": [{"id": 2025020741, "season": 20252026}, {"id": 2026020742, "season": 20252026}]}`),
+			wantLen:   2,
+			wantErr:   false,
+			wantFirst: Game{ID: 2025020741, Season: 20252026},
 		},
 		{
 			name:    "bad json",
@@ -43,7 +46,7 @@ func TestParseGames(t *testing.T) {
 			name:    "missing games field",
 			input:   []byte(`{}`),
 			wantLen: 0,
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
@@ -56,7 +59,9 @@ func TestParseGames(t *testing.T) {
 			if len(got) != tt.wantLen {
 				t.Errorf("got %d games, want %d", len(got), tt.wantLen)
 			}
-			// TODO: add field-level assertions (e.g. got[0].ID, got[0].Season) where useful
+			if tt.wantLen > 0 && got[0] != tt.wantFirst {
+				t.Errorf("first game: got %+v, want %+v", got[0], tt.wantFirst)
+			}
 		})
 	}
 }
