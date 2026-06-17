@@ -8,18 +8,27 @@ import (
 	"os"
 	"time"
 
+	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/bronze"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/nhl"
 )
 
-const dateLayout = "2006-01-02"
+const (
+	dateLayout = "2006-01-02"
+	opTimeout  = 30 * time.Second
+)
 
 func main() {
 	startFlag := flag.String("start", "", "start date (YYYY-MM-DD, inclusive)")
 	endFlag := flag.String("end", "", "end date (YYYY-MM-DD, inclusive)")
+	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL")
+	bucketFlag := flag.String("s3-bucket", "", "S3 bucket to write bronze data to")
 	flag.Parse()
 
 	if *startFlag == "" || *endFlag == "" {
 		log.Fatalf("--start and --end are required (YYYY-MM-DD, inclusive)")
+	}
+	if *endpointFlag == "" || *bucketFlag == "" {
+		log.Fatalf("--s3-endpoint and --s3-bucket are required")
 	}
 
 	start, err := time.Parse(dateLayout, *startFlag)
@@ -34,6 +43,16 @@ func main() {
 		log.Fatalf("--end (%s) is before --start (%s)", *endFlag, *startFlag)
 	}
 
+	ctx := context.Background()
+
+	writer, err := bronze.NewWriter(ctx, bronze.Config{
+		Endpoint: *endpointFlag,
+		Bucket:   *bucketFlag,
+	})
+	if err != nil {
+		log.Fatalf("init bronze writer: %v", err)
+	}
+
 	client := nhl.NewClient()
 
 	var schedulesOK, scheduleFailures int
@@ -43,19 +62,28 @@ func main() {
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		date := d.Format(dateLayout)
 
-		scheduleCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		scheduleCtx, cancel := context.WithTimeout(ctx, opTimeout)
 		scheduleBody, err := client.Schedule(scheduleCtx, date)
 		cancel()
 		if err != nil {
-			log.Printf("date=%s schedule error=%v", date, err)
+			log.Printf("date=%s schedule fetch error=%v", date, err)
 			scheduleFailures++
 			continue
 		}
 		totalBytes += len(scheduleBody)
 
+		writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+		err = writer.WriteSchedule(writeCtx, date, scheduleBody)
+		cancel()
+		if err != nil {
+			log.Printf("date=%s schedule write error=%v", date, err)
+			scheduleFailures++
+			continue
+		}
+
 		games, err := nhl.ParseGames(scheduleBody)
 		if err != nil {
-			log.Printf("date=%s parse error=%v", date, err)
+			log.Printf("date=%s schedule parse error=%v", date, err)
 			scheduleFailures++
 			continue
 		}
@@ -63,18 +91,28 @@ func main() {
 
 		var datePBPBytes, datePBPFailures int
 		for _, g := range games {
-			pbpCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			pbpCtx, cancel := context.WithTimeout(ctx, opTimeout)
 			pbpBody, err := client.PlayByPlay(pbpCtx, g.ID)
 			cancel()
 			if err != nil {
-				log.Printf("date=%s game=%d pbp error=%v", date, g.ID, err)
+				log.Printf("date=%s game=%d pbp fetch error=%v", date, g.ID, err)
+				datePBPFailures++
+				gameFailures++
+				continue
+			}
+			datePBPBytes += len(pbpBody)
+			totalBytes += len(pbpBody)
+
+			writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+			err = writer.WritePlayByPlay(writeCtx, g.Season, date, g.ID, pbpBody)
+			cancel()
+			if err != nil {
+				log.Printf("date=%s game=%d pbp write error=%v", date, g.ID, err)
 				datePBPFailures++
 				gameFailures++
 				continue
 			}
 			gamesOK++
-			datePBPBytes += len(pbpBody)
-			totalBytes += len(pbpBody)
 		}
 
 		fmt.Printf("date=%s schedule_bytes=%d games=%d pbp_bytes=%d pbp_failures=%d\n",
