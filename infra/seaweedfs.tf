@@ -35,6 +35,7 @@ resource "helm_release" "seaweedfs" {
             type         = "persistentVolumeClaim"
             size         = "100Gi"
             storageClass = "local-path"
+            maxVolumes   = 100
           }
         ]
         nodeSelector = <<-EOT
