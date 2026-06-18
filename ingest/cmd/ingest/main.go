@@ -20,7 +20,7 @@ const (
 func main() {
 	startFlag := flag.String("start", "", "start date (YYYY-MM-DD, inclusive)")
 	endFlag := flag.String("end", "", "end date (YYYY-MM-DD, inclusive)")
-	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL")
+	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL (credentials read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars via the AWS SDK default chain)")
 	bucketFlag := flag.String("s3-bucket", "", "S3 bucket to write bronze data to")
 	flag.Parse()
 
@@ -70,7 +70,6 @@ func main() {
 			scheduleFailures++
 			continue
 		}
-		totalBytes += len(scheduleBody)
 
 		writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
 		err = writer.WriteSchedule(writeCtx, date, scheduleBody)
@@ -80,6 +79,7 @@ func main() {
 			scheduleFailures++
 			continue
 		}
+		totalBytes += len(scheduleBody)
 
 		games, err := nhl.ParseGames(scheduleBody)
 		if err != nil {
@@ -100,8 +100,6 @@ func main() {
 				gameFailures++
 				continue
 			}
-			datePBPBytes += len(pbpBody)
-			totalBytes += len(pbpBody)
 
 			writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
 			err = writer.WritePlayByPlay(writeCtx, g.Season, date, g.ID, pbpBody)
@@ -113,6 +111,8 @@ func main() {
 				continue
 			}
 			gamesOK++
+			datePBPBytes += len(pbpBody)
+			totalBytes += len(pbpBody)
 		}
 
 		fmt.Printf("date=%s schedule_bytes=%d games=%d pbp_bytes=%d pbp_failures=%d\n",

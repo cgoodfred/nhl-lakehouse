@@ -55,7 +55,7 @@ func NewWriterFromClient(client *s3.Client, bucket string) *Writer {
 }
 
 func (w *Writer) WriteSchedule(ctx context.Context, date string, body []byte) error {
-	key := fmt.Sprintf("schedule/date=%s.json", date)
+	key := fmt.Sprintf("schedule/date=%s/schedule.json", date)
 	return w.put(ctx, key, body)
 }
 
