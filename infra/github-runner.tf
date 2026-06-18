@@ -56,6 +56,12 @@ resource "kubernetes_deployment" "github_runner" {
   }
   spec {
     replicas = 1
+    # Recreate (vs default RollingUpdate) prevents two pods registering with
+    # the same RUNNER_NAME during rollouts: the myoung34 entrypoint's --replace
+    # flag would evict the old registration mid-job otherwise.
+    strategy {
+      type = "Recreate"
+    }
     selector {
       match_labels = {
         app = "github-runner"
