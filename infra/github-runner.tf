@@ -15,6 +15,10 @@ resource "kubernetes_service_account" "github_runner" {
   }
 }
 
+# Admin RBAC + the default auto-mounted SA token means any workflow running on
+# this runner can read every Secret in ci and lakehouse, including its own
+# PAT. Accepted because only trusted workflows target the pi-cluster label
+# (branch protection on main + fork-PR approval setting on the repo).
 resource "kubernetes_role_binding" "github_runner_lakehouse" {
   metadata {
     name      = "github-runner-lakehouse-admin"
