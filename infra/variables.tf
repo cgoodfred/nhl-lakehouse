@@ -16,3 +16,9 @@ variable "s3_secret_key" {
   description = "s3 secret key"
   sensitive   = true
 }
+
+variable "github_pat" {
+  type        = string
+  description = "fine-grained github personal access token for runner registration (Administration: write on the repo)"
+  sensitive   = true
+}
