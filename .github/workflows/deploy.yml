@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+# Workflow only needs to checkout code; nothing else from the GitHub API.
+permissions:
+  contents: read
+
 # Prevent two pushes to main from racing on terraform state.
 concurrency:
   group: deploy-infra
