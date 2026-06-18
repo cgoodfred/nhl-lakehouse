@@ -1,0 +1,40 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Prevent two pushes to main from racing on terraform state.
+concurrency:
+  group: deploy-infra
+  cancel-in-progress: false
+
+jobs:
+  apply-infra:
+    runs-on: [self-hosted, pi-cluster]
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      # In-cluster auth for both the backend and the kubernetes/helm providers.
+      KUBE_IN_CLUSTER_CONFIG: "true"
+      TF_VAR_kubeconfig_path: ""
+
+      # Sensitive variables sourced from repo secrets.
+      TF_VAR_s3_access_key: ${{ secrets.S3_ACCESS_KEY }}
+      TF_VAR_s3_secret_key: ${{ secrets.S3_SECRET_KEY }}
+      TF_VAR_github_pat:    ${{ secrets.RUNNER_GITHUB_PAT }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: tofu init
+        run: tofu init
+
+      - name: tofu plan
+        run: tofu plan -out=tfplan
+
+      - name: tofu apply
+        run: tofu apply tfplan
