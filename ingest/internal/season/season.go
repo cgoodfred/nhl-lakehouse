@@ -23,5 +23,5 @@ func Dates(season string) (time.Time, time.Time, error) {
 	if end-start != 1 {
 		return time.Time{}, time.Time{}, fmt.Errorf("start and end must be consecutive years")
 	}
-	return time.Date(start, time.October, 1, 0, 0, 0, 0, time.UTC), time.Date(end, time.July, 1, 0, 0, 0, 0, time.UTC), nil
+	return time.Date(start, time.September, 1, 0, 0, 0, 0, time.UTC), time.Date(end, time.July, 1, 0, 0, 0, 0, time.UTC), nil
 }

@@ -16,7 +16,7 @@ func TestDates(t *testing.T) {
 		{
 			name:      "regular season",
 			input:     "20232024",
-			wantStart: time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+			wantStart: time.Date(2023, time.September, 1, 0, 0, 0, 0, time.UTC),
 			wantEnd:   time.Date(2024, time.July, 1, 0, 0, 0, 0, time.UTC),
 		},
 		{name: "too short", input: "2023", wantErr: true},
