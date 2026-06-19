@@ -10,6 +10,7 @@ import (
 
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/bronze"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/nhl"
+	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/season"
 )
 
 const (
@@ -22,25 +23,38 @@ func main() {
 	endFlag := flag.String("end", "", "end date (YYYY-MM-DD, inclusive)")
 	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL (credentials read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars via the AWS SDK default chain)")
 	bucketFlag := flag.String("s3-bucket", "", "S3 bucket to write bronze data to")
+	seasonFlag := flag.String("season", "", "Season in the format YYYYYYYY such as 20242025")
 	flag.Parse()
 
-	if *startFlag == "" || *endFlag == "" {
-		log.Fatalf("--start and --end are required (YYYY-MM-DD, inclusive)")
+	var start, end time.Time
+	switch {
+	case *seasonFlag != "" && (*startFlag != "" || *endFlag != ""):
+		log.Fatalf("--season and --start/--end can't be used together")
+	case *seasonFlag != "":
+		var err error
+		start, end, err = season.Dates(*seasonFlag)
+		if err != nil {
+			log.Fatalf("parse --season: %v", err)
+		}
+	case *startFlag != "" && *endFlag != "":
+		var err error
+		start, err = time.Parse(dateLayout, *startFlag)
+		if err != nil {
+			log.Fatalf("parse --start: %v", err)
+		}
+		end, err = time.Parse(dateLayout, *endFlag)
+		if err != nil {
+			log.Fatalf("parse --end: %v", err)
+		}
+	default:
+		log.Fatalf("must specify --season or both --start and --end")
+	}
+
+	if end.Before(start) {
+		log.Fatalf("end (%s) is before start (%s)", end.Format(dateLayout), start.Format(dateLayout))
 	}
 	if *endpointFlag == "" || *bucketFlag == "" {
 		log.Fatalf("--s3-endpoint and --s3-bucket are required")
-	}
-
-	start, err := time.Parse(dateLayout, *startFlag)
-	if err != nil {
-		log.Fatalf("parse --start: %v", err)
-	}
-	end, err := time.Parse(dateLayout, *endFlag)
-	if err != nil {
-		log.Fatalf("parse --end: %v", err)
-	}
-	if end.Before(start) {
-		log.Fatalf("--end (%s) is before --start (%s)", *endFlag, *startFlag)
 	}
 
 	ctx := context.Background()
