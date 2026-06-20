@@ -53,6 +53,41 @@ resource "kubernetes_role_binding" "github_runner_ci" {
   }
 }
 
+# Cluster-scoped permissions for managing Helm charts that install ClusterRoles
+# and ClusterRoleBindings (e.g. seaweedfs creates `seaweedfs-rw-cr`). Without
+# this, `tofu apply` on the runner fails to upgrade those charts because Helm
+# can't read the existing cluster-scoped resources to compute the diff.
+#
+# Narrower than full cluster-admin (no node/secret/pod-exec access), but does
+# allow a malicious workflow to grant itself cluster-admin via a crafted
+# ClusterRoleBinding.
+resource "kubernetes_cluster_role" "github_runner_helm_cluster_scope" {
+  metadata {
+    name = "github-runner-helm-cluster-scope"
+  }
+  rule {
+    api_groups = ["rbac.authorization.k8s.io"]
+    resources  = ["clusterroles", "clusterrolebindings"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "github_runner_helm_cluster_scope" {
+  metadata {
+    name = "github-runner-helm-cluster-scope"
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.github_runner_helm_cluster_scope.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
 resource "kubernetes_deployment" "github_runner" {
   metadata {
     name      = "github-runner"
