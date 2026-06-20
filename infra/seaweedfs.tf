@@ -49,8 +49,7 @@ resource "helm_release" "seaweedfs" {
         existingConfigSecret = kubernetes_secret.seaweedfs_s3_config.metadata[0].name
         createBuckets = [
           { name = "nhl-bronze" },
-          { name = "nhl-silver" },
-          { name = "nhl-gold" },
+          { name = "nhl-warehouse" },
         ]
       }
     })
