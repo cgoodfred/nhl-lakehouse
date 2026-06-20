@@ -14,9 +14,10 @@ import (
 
 const (
 	defaultBaseURL    = "https://api-web.nhle.com/v1"
-	defaultRate       = rate.Limit(5) // requests per second sustained
-	defaultBurst      = 10
-	defaultMaxRetries = 3
+	defaultRate       = rate.Limit(2) // requests per second sustained
+	defaultBurst      = 5
+	defaultMaxRetries = 6
+	maxBackoffDelay   = 60 * time.Second
 )
 
 type Client struct {
@@ -113,14 +114,19 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 
 // backoffDelay returns the wait duration before the next retry. Honors a
 // Retry-After header value (interpreted as seconds) when present, otherwise
-// uses exponential backoff: 1s, 2s, 4s, 8s.
+// uses exponential backoff capped at maxBackoffDelay: 1s, 2s, 4s, 8s, 16s,
+// 32s, 60s, 60s...
 func backoffDelay(attempt int, retryAfter string) time.Duration {
 	if retryAfter != "" {
 		if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
 			return time.Duration(secs) * time.Second
 		}
 	}
-	return time.Duration(1<<attempt) * time.Second
+	delay := time.Duration(1<<attempt) * time.Second
+	if delay > maxBackoffDelay {
+		return maxBackoffDelay
+	}
+	return delay
 }
 
 type Game struct {
