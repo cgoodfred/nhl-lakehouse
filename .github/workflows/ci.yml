@@ -44,3 +44,31 @@ jobs:
 
       - name: tofu validate
         run: tofu validate
+
+  tofu-plan:
+    name: OpenTofu (plan against cluster)
+    # Skip on PRs from forks — the self-hosted runner has cluster credentials
+    # we don't want to expose to arbitrary forked code.
+    if: github.event.pull_request.head.repo.fork == false
+    runs-on: [self-hosted, pi-cluster]
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      KUBE_IN_CLUSTER_CONFIG: "true"
+      TF_VAR_kubeconfig_path: ""
+      TF_VAR_s3_access_key: ${{ secrets.S3_ACCESS_KEY }}
+      TF_VAR_s3_secret_key: ${{ secrets.S3_SECRET_KEY }}
+      TF_VAR_github_pat: ${{ secrets.RUNNER_GITHUB_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+
+      - name: tofu init
+        run: tofu init
+
+      - name: tofu plan
+        run: tofu plan -no-color
