@@ -59,7 +59,10 @@ func main() {
 	}
 
 	ctx := context.Background()
-	runID := manifest.RunID(time.Now())
+	runID, err := manifest.UniqueRunID(time.Now())
+	if err != nil {
+		log.Fatalf("generate run id: %v", err)
+	}
 
 	writer, err := bronze.NewWriter(ctx, bronze.Config{
 		Endpoint: *endpointFlag,

@@ -2,8 +2,10 @@ package manifest
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,6 +34,34 @@ func TestRunID(t *testing.T) {
 				t.Errorf("got %q, want %q", id, tt.wantID)
 			}
 		})
+	}
+}
+
+func TestUniqueRunID(t *testing.T) {
+	at := time.Date(2026, time.June, 19, 14, 30, 12, 0, time.UTC)
+	const wantPrefix = "20260619T143012Z-"
+
+	id, err := UniqueRunID(at)
+	if err != nil {
+		t.Fatalf("UniqueRunID: %v", err)
+	}
+	if !strings.HasPrefix(id, wantPrefix) {
+		t.Errorf("id %q does not start with %q", id, wantPrefix)
+	}
+	suffix := strings.TrimPrefix(id, wantPrefix)
+	if len(suffix) != 8 {
+		t.Errorf("suffix %q: got len %d, want 8", suffix, len(suffix))
+	}
+	if _, err := hex.DecodeString(suffix); err != nil {
+		t.Errorf("suffix %q is not hex: %v", suffix, err)
+	}
+
+	id2, err := UniqueRunID(at)
+	if err != nil {
+		t.Fatalf("UniqueRunID (second call): %v", err)
+	}
+	if id == id2 {
+		t.Errorf("two calls produced the same id %q; suffix is not unique", id)
 	}
 }
 
