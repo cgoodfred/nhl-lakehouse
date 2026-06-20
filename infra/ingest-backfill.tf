@@ -1,6 +1,11 @@
 resource "kubernetes_job_v1" "ingest_backfill" {
   count = var.backfill_season != "" ? 1 : 0
 
+  # Don't block tofu apply on backfill duration (~5-7 min per season). Job
+  # success/failure is observable via kubectl logs and the failure manifest
+  # in S3; coupling terraform state to runtime is the wrong layering.
+  wait_for_completion = false
+
   metadata {
     name      = "ingest-backfill-${var.backfill_season}"
     namespace = kubernetes_namespace.lakehouse.metadata[0].name
