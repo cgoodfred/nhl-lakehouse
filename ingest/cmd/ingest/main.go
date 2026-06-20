@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/bronze"
+	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/manifest"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/nhl"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/season"
 )
@@ -58,6 +59,10 @@ func main() {
 	}
 
 	ctx := context.Background()
+	runID, err := manifest.UniqueRunID(time.Now())
+	if err != nil {
+		log.Fatalf("generate run id: %v", err)
+	}
 
 	writer, err := bronze.NewWriter(ctx, bronze.Config{
 		Endpoint: *endpointFlag,
@@ -72,6 +77,7 @@ func main() {
 	var schedulesOK, scheduleFailures int
 	var gamesOK, gameFailures int
 	var totalBytes int
+	var failures []manifest.Failure
 
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		date := d.Format(dateLayout)
@@ -81,6 +87,9 @@ func main() {
 		cancel()
 		if err != nil {
 			log.Printf("date=%s schedule fetch error=%v", date, err)
+			failures = append(failures, manifest.Failure{
+				Date: date, Stage: manifest.StageScheduleFetch, Error: err.Error(),
+			})
 			scheduleFailures++
 			continue
 		}
@@ -90,6 +99,9 @@ func main() {
 		cancel()
 		if err != nil {
 			log.Printf("date=%s schedule write error=%v", date, err)
+			failures = append(failures, manifest.Failure{
+				Date: date, Stage: manifest.StageScheduleWrite, Error: err.Error(),
+			})
 			scheduleFailures++
 			continue
 		}
@@ -98,6 +110,9 @@ func main() {
 		games, err := nhl.ParseGames(scheduleBody)
 		if err != nil {
 			log.Printf("date=%s schedule parse error=%v", date, err)
+			failures = append(failures, manifest.Failure{
+				Date: date, Stage: manifest.StageScheduleParse, Error: err.Error(),
+			})
 			scheduleFailures++
 			continue
 		}
@@ -110,6 +125,9 @@ func main() {
 			cancel()
 			if err != nil {
 				log.Printf("date=%s game=%d pbp fetch error=%v", date, g.ID, err)
+				failures = append(failures, manifest.Failure{
+					Date: date, GameID: g.ID, Stage: manifest.StagePBPFetch, Error: err.Error(),
+				})
 				datePBPFailures++
 				gameFailures++
 				continue
@@ -120,6 +138,9 @@ func main() {
 			cancel()
 			if err != nil {
 				log.Printf("date=%s game=%d pbp write error=%v", date, g.ID, err)
+				failures = append(failures, manifest.Failure{
+					Date: date, GameID: g.ID, Stage: manifest.StagePBPWrite, Error: err.Error(),
+				})
 				datePBPFailures++
 				gameFailures++
 				continue
@@ -135,6 +156,22 @@ func main() {
 
 	fmt.Printf("done schedules_ok=%d schedule_failures=%d games_ok=%d game_failures=%d total_bytes=%d\n",
 		schedulesOK, scheduleFailures, gamesOK, gameFailures, totalBytes)
+
+	if len(failures) > 0 {
+		body, err := manifest.Marshal(failures)
+		if err != nil {
+			log.Printf("marshal failure manifest: %v", err)
+		} else {
+			writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+			err = writer.WriteRunFailures(writeCtx, runID, body)
+			cancel()
+			if err != nil {
+				log.Printf("write failure manifest: %v", err)
+			} else {
+				fmt.Printf("failure manifest written run=%s count=%d\n", runID, len(failures))
+			}
+		}
+	}
 
 	if scheduleFailures > 0 || gameFailures > 0 {
 		os.Exit(1)

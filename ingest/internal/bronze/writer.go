@@ -75,3 +75,8 @@ func (w *Writer) put(ctx context.Context, key string, body []byte) error {
 	}
 	return nil
 }
+
+func (w *Writer) WriteRunFailures(ctx context.Context, runID string, body []byte) error {
+	key := fmt.Sprintf("_runs/run=%s/failures.json", runID)
+	return w.put(ctx, key, body)
+}

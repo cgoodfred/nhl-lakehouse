@@ -77,6 +77,56 @@ func TestWriter_WriteSchedule(t *testing.T) {
 	})
 }
 
+func TestWriter_WriteRunFailures(t *testing.T) {
+	const (
+		bucket  = "nhl-bronze"
+		runID   = "20260619T143012Z-a7b3c1d4"
+		body    = `[{"date":"2023-11-04","game_id":2023020234,"stage":"pbp_fetch","error":"oops"}]`
+		wantKey = "_runs/run=20260619T143012Z-a7b3c1d4/failures.json"
+	)
+
+	t.Run("happy path", func(t *testing.T) {
+		var gotPath string
+		var gotBody string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			buf, _ := io.ReadAll(r.Body)
+			gotBody = string(buf)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		writer := newTestWriter(srv.URL, bucket)
+		if err := writer.WriteRunFailures(context.Background(), runID, []byte(body)); err != nil {
+			t.Fatalf("WriteRunFailures: %v", err)
+		}
+
+		wantPath := "/" + bucket + "/" + wantKey
+		if gotPath != wantPath {
+			t.Errorf("got path %q, want %q", gotPath, wantPath)
+		}
+		if gotBody != body {
+			t.Errorf("got body %q, want %q", gotBody, body)
+		}
+	})
+
+	t.Run("non-2xx returns error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "internal", http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+
+		writer := newTestWriter(srv.URL, bucket)
+		err := writer.WriteRunFailures(context.Background(), runID, []byte(body))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), wantKey) {
+			t.Errorf("error should mention key %q, got: %v", wantKey, err)
+		}
+	})
+}
+
 func TestWriter_WritePlayByPlay(t *testing.T) {
 	const (
 		bucket  = "nhl-bronze"
