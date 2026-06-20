@@ -6,14 +6,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
-const defaultBaseURL = "https://api-web.nhle.com/v1"
+const (
+	defaultBaseURL    = "https://api-web.nhle.com/v1"
+	defaultRate       = rate.Limit(5) // requests per second sustained
+	defaultBurst      = 10
+	defaultMaxRetries = 3
+)
 
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	limiter    *rate.Limiter
+	maxRetries int
+	backoff    func(attempt int, retryAfter string) time.Duration
 }
 
 func NewClient() *Client {
@@ -26,6 +37,23 @@ func NewClientWithBaseURL(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		limiter:    rate.NewLimiter(defaultRate, defaultBurst),
+		maxRetries: defaultMaxRetries,
+		backoff:    backoffDelay,
+	}
+}
+
+// newClientForTest builds a Client with custom rate/retry/backoff settings so
+// tests don't burn wall-clock time on the production defaults.
+func newClientForTest(baseURL string, r rate.Limit, burst, maxRetries int, backoff func(int, string) time.Duration) *Client {
+	return &Client{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		limiter:    rate.NewLimiter(r, burst),
+		maxRetries: maxRetries,
+		backoff:    backoff,
 	}
 }
 
@@ -41,27 +69,58 @@ func (c *Client) PlayByPlay(ctx context.Context, gameID int64) ([]byte, error) {
 
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	url := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("new request: %w", err)
-	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
+	for attempt := 0; ; attempt++ {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limit wait: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
-	}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("new request: %w", err)
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("do request: %w", err)
+		}
 
-	return body, nil
+		body, readErr := io.ReadAll(resp.Body)
+		retryAfter := resp.Header.Get("Retry-After")
+		status := resp.StatusCode
+		resp.Body.Close()
+
+		if status == http.StatusOK {
+			if readErr != nil {
+				return nil, fmt.Errorf("read body: %w", readErr)
+			}
+			return body, nil
+		}
+
+		if status == http.StatusTooManyRequests && attempt < c.maxRetries {
+			delay := c.backoff(attempt, retryAfter)
+			select {
+			case <-time.After(delay):
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		return nil, fmt.Errorf("GET %s: status %d", path, status)
+	}
+}
+
+// backoffDelay returns the wait duration before the next retry. Honors a
+// Retry-After header value (interpreted as seconds) when present, otherwise
+// uses exponential backoff: 1s, 2s, 4s, 8s.
+func backoffDelay(attempt int, retryAfter string) time.Duration {
+	if retryAfter != "" {
+		if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return time.Duration(1<<attempt) * time.Second
 }
 
 type Game struct {
