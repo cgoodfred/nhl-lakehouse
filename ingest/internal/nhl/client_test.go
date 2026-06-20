@@ -5,8 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"golang.org/x/time/rate"
 )
+
+// instantBackoff returns 0 for every attempt so tests don't sleep.
+func instantBackoff(int, string) time.Duration { return 0 }
 
 func TestParseGames(t *testing.T) {
 	tests := []struct {
@@ -152,4 +159,80 @@ func TestClient_PlayByPlay(t *testing.T) {
 			t.Errorf("error should mention status 404, got: %v", err)
 		}
 	})
+}
+
+func TestClient_RetriesOn429(t *testing.T) {
+	var calls atomic.Int32
+	const wantBody = `{"games": []}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(wantBody))
+	}))
+	defer srv.Close()
+
+	client := newClientForTest(srv.URL, rate.Inf, 100, 3, instantBackoff)
+	body, err := client.Schedule(context.Background(), "2026-01-15")
+	if err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if string(body) != wantBody {
+		t.Errorf("got body %q, want %q", body, wantBody)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("expected 2 calls (1 fail + 1 success), got %d", calls.Load())
+	}
+}
+
+func TestClient_429ExhaustedReturnsError(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	const maxRetries = 2
+	client := newClientForTest(srv.URL, rate.Inf, 100, maxRetries, instantBackoff)
+	_, err := client.Schedule(context.Background(), "2026-01-15")
+	if err == nil {
+		t.Fatal("expected error after exhausting retries, got nil")
+	}
+	if !strings.Contains(err.Error(), "429") {
+		t.Errorf("error should mention 429, got: %v", err)
+	}
+	wantCalls := int32(maxRetries + 1) // initial attempt + N retries
+	if calls.Load() != wantCalls {
+		t.Errorf("expected %d calls, got %d", wantCalls, calls.Load())
+	}
+}
+
+func TestBackoffDelay(t *testing.T) {
+	tests := []struct {
+		name       string
+		attempt    int
+		retryAfter string
+		want       time.Duration
+	}{
+		{name: "no header attempt 0", attempt: 0, want: 1 * time.Second},
+		{name: "no header attempt 1", attempt: 1, want: 2 * time.Second},
+		{name: "no header attempt 2", attempt: 2, want: 4 * time.Second},
+		{name: "no header attempt 3", attempt: 3, want: 8 * time.Second},
+		{name: "valid header overrides backoff", attempt: 2, retryAfter: "5", want: 5 * time.Second},
+		{name: "invalid header falls back", attempt: 1, retryAfter: "abc", want: 2 * time.Second},
+		{name: "empty header falls back", attempt: 0, retryAfter: "", want: 1 * time.Second},
+		{name: "negative header falls back", attempt: 0, retryAfter: "-1", want: 1 * time.Second},
+		{name: "zero header falls back", attempt: 0, retryAfter: "0", want: 1 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := backoffDelay(tt.attempt, tt.retryAfter)
+			if got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

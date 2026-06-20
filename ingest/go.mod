@@ -1,12 +1,13 @@
 module github.com/cgoodfred/nhl-lakehouse/ingest
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0
+	golang.org/x/time v0.15.0
 )
 
 require (
