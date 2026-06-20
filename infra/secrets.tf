@@ -21,3 +21,14 @@ resource "kubernetes_secret" "seaweedfs_s3_config" {
     })
   }
 }
+
+resource "kubernetes_secret" "ingest_s3_creds" {
+  metadata {
+    name      = "ingest-s3-creds"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  data = {
+    access_key = var.s3_access_key
+    secret_key = var.s3_secret_key
+  }
+}

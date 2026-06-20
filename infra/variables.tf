@@ -22,3 +22,10 @@ variable "github_pat" {
   description = "fine-grained github personal access token for runner registration (Administration: write on the repo)"
   sensitive   = true
 }
+
+variable "backfill_season" {
+  type        = string
+  description = "8 digit season to backfill (e.g. 20232024)"
+  default     = ""
+  sensitive   = false
+}
