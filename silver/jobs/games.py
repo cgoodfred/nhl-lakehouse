@@ -68,22 +68,22 @@ GAMES_SCHEMA = StructType([
 
 
 def main() -> None:
-    # Pull credentials from env and set them on the SparkConf in code. Spark's
-    # ${env:VAR} substitution does NOT propagate reliably into spark.sql.catalog.*
-    # or spark.hadoop.fs.s3a.* properties — the catalog implementation receives
-    # the literal string and OAuth/S3 auth fails with "invalid_client" or 403.
-    client_id = os.environ["LAKEKEEPER_CLIENT_ID"]
-    client_secret = os.environ["LAKEKEEPER_CLIENT_SECRET"]
-    aws_access_key = os.environ["AWS_ACCESS_KEY_ID"]
-    aws_secret_key = os.environ["AWS_SECRET_ACCESS_KEY"]
+    spark = SparkSession.builder.appName("silver-games").getOrCreate()
 
-    spark = (
-        SparkSession.builder.appName("silver-games")
-        .config("spark.sql.catalog.nhl.credential", f"{client_id}:{client_secret}")
-        .config("spark.hadoop.fs.s3a.access.key", aws_access_key)
-        .config("spark.hadoop.fs.s3a.secret.key", aws_secret_key)
-        .getOrCreate()
-    )
+    # DIAGNOSTIC: confirm what Spark's SparkConf actually contains at runtime
+    # for the credential-bearing keys we set via ${env:VAR} in the manifest.
+    # If logged value looks like the raw template ('${env:LAKEKEEPER_...'),
+    # substitution did NOT happen → entrypoint-script materialization is needed.
+    # If logged value is 'lakekeeper-spark:<secret>', substitution worked and
+    # any "invalid_client" must be a separate Keycloak issue.
+    sc_conf = spark.sparkContext.getConf()
+    print("===== CONF DIAGNOSTIC =====")
+    print(f"spark.sql.catalog.nhl.credential: {sc_conf.get('spark.sql.catalog.nhl.credential', 'UNSET')!r}")
+    print(f"spark.hadoop.fs.s3a.access.key:   {sc_conf.get('spark.hadoop.fs.s3a.access.key', 'UNSET')!r}")
+    print(f"env LAKEKEEPER_CLIENT_ID:         {os.environ.get('LAKEKEEPER_CLIENT_ID', 'UNSET')!r}")
+    print(f"env LAKEKEEPER_CLIENT_SECRET set: {bool(os.environ.get('LAKEKEEPER_CLIENT_SECRET'))}")
+    print(f"env AWS_ACCESS_KEY_ID:            {os.environ.get('AWS_ACCESS_KEY_ID', 'UNSET')!r}")
+    print("===========================")
 
     # Iceberg requires the namespace to exist before tables can be created.
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")
