@@ -12,6 +12,14 @@ resource "helm_release" "lakekeeper" {
         enabled = false
       }
 
+      # Run the db-migration Job as a regular resource (not a post-install hook).
+      # Default `helmWait: false` annotates the Job as post-install, but the
+      # catalog Deployment's check-db init container blocks until migrations
+      # are applied, so the Deployment is never Ready and the post-install hook
+      # never fires — chart install times out. helmWait: true runs the Job
+      # alongside the Deployment so the init container can wait on it.
+      helmWait = true
+
       externalDatabase = {
         type              = "postgres"
         host_read         = "lakekeeper-pg-postgresql.${kubernetes_namespace.lakehouse.metadata[0].name}.svc.cluster.local"
