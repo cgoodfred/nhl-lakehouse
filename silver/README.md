@@ -41,16 +41,19 @@ Final state:
 
 ## Iterating
 
-`SparkApplication` is immutable once created. To re-run after code changes:
+`SparkApplication` is immutable once created. After merging a code change to `main`:
 
-```bash
-kubectl delete sparkapplication silver-games -n lakehouse
-# After the new image build completes (build-silver-image.yml workflow), pin the SHA:
-# Edit spec.image in silver-games.yaml from :latest to :<new-sha>, then:
-kubectl apply -f silver/k8s/silver-games.yaml
-```
+1. Wait for the `Build silver image` workflow to complete and note the new short SHA (`gh run list --workflow=build-silver-image.yml --limit 1`).
+2. Edit `spec.image` in the relevant `silver/k8s/*.yaml` from `:latest` (or the previous SHA) to `:<new-sha>`.
+3. Re-apply:
+   ```bash
+   kubectl delete sparkapplication silver-games -n lakehouse
+   kubectl apply -f silver/k8s/silver-games.yaml
+   ```
 
-For quick local iteration, `:latest` works — `imagePullPolicy: IfNotPresent` will hit cached pulls, so `kubectl rollout restart` or driver pod delete forces a re-pull. For reproducible runs, pin to the SHA from the build workflow output.
+The manifest uses `imagePullPolicy: IfNotPresent`, so changing the image **tag** is what triggers a fresh pull — pod restart alone will reuse the cached `:latest`. SHA-pinning is the reliable way to know which build is actually running. Stick to SHA tags once you're past the very first apply.
+
+If you need to force a pull of `:latest` for some reason (e.g. before any SHA-tagged build has succeeded), temporarily change `imagePullPolicy` to `Always` in the manifest for that one apply.
 
 ## Available jobs
 
