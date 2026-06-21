@@ -16,6 +16,7 @@ spec:
 
   driver:
     cores: 2
+    coreLimit: "2"
     memory: "2g"
     serviceAccount: silver-spark
     env:
@@ -44,6 +45,7 @@ spec:
 
   executor:
     cores: 1
+    coreLimit: "1"
     instances: 1
     memory: "1g"
     env:
@@ -77,7 +79,8 @@ spec:
     "spark.sql.catalog.nhl.type": "rest"
     "spark.sql.catalog.nhl.uri": "http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog"
     "spark.sql.catalog.nhl.warehouse": "nhl"
-    "spark.sql.catalog.nhl.credential": "${env:LAKEKEEPER_CLIENT_ID}:${env:LAKEKEEPER_CLIENT_SECRET}"
+    # spark.sql.catalog.nhl.credential is set in code (games.py) from env vars —
+    # Spark's ${env:VAR} substitution doesn't propagate into Iceberg catalog props.
     "spark.sql.catalog.nhl.scope": "lakekeeper"
     "spark.sql.catalog.nhl.oauth2-server-uri": "https://keycloak.cluster.cgood.dev/realms/Lakehouse/protocol/openid-connect/token"
     "spark.sql.catalog.nhl.token-refresh-enabled": "true"
@@ -91,8 +94,7 @@ spec:
     "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-    "spark.hadoop.fs.s3a.access.key": "${env:AWS_ACCESS_KEY_ID}"
-    "spark.hadoop.fs.s3a.secret.key": "${env:AWS_SECRET_ACCESS_KEY}"
+    # access.key and secret.key are set in code (games.py) from env vars.
     "spark.hadoop.fs.s3a.change.detection.version.required": "false"
     "spark.hadoop.fs.s3a.change.detection.mode": "warn"
 

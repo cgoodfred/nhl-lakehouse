@@ -9,6 +9,8 @@ we want in the StructType so the JSON parser skips the heavy arrays without
 materializing them.
 """
 
+import os
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, to_date, to_timestamp
 from pyspark.sql.types import (
@@ -66,7 +68,22 @@ GAMES_SCHEMA = StructType([
 
 
 def main() -> None:
-    spark = SparkSession.builder.appName("silver-games").getOrCreate()
+    # Pull credentials from env and set them on the SparkConf in code. Spark's
+    # ${env:VAR} substitution does NOT propagate reliably into spark.sql.catalog.*
+    # or spark.hadoop.fs.s3a.* properties — the catalog implementation receives
+    # the literal string and OAuth/S3 auth fails with "invalid_client" or 403.
+    client_id = os.environ["LAKEKEEPER_CLIENT_ID"]
+    client_secret = os.environ["LAKEKEEPER_CLIENT_SECRET"]
+    aws_access_key = os.environ["AWS_ACCESS_KEY_ID"]
+    aws_secret_key = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+    spark = (
+        SparkSession.builder.appName("silver-games")
+        .config("spark.sql.catalog.nhl.credential", f"{client_id}:{client_secret}")
+        .config("spark.hadoop.fs.s3a.access.key", aws_access_key)
+        .config("spark.hadoop.fs.s3a.secret.key", aws_secret_key)
+        .getOrCreate()
+    )
 
     # Iceberg requires the namespace to exist before tables can be created.
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")

@@ -15,16 +15,25 @@ resource "kubernetes_role" "silver_spark" {
     namespace = kubernetes_namespace.lakehouse.metadata[0].name
   }
 
+  # Explicit verb list (not "*") because the deploy runner has the built-in
+  # `admin` ClusterRole which itself doesn't hold "*". You can only grant
+  # permissions you already hold.
   rule {
     api_groups = [""]
     resources  = ["pods", "services", "configmaps", "persistentvolumeclaims"]
-    verbs      = ["*"]
+    verbs      = ["create", "delete", "deletecollection", "get", "list", "patch", "update", "watch"]
   }
 
   rule {
     api_groups = [""]
-    resources  = ["pods/log", "pods/exec"]
-    verbs      = ["get", "list", "create"]
+    resources  = ["pods/log"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods/exec"]
+    verbs      = ["create", "get"]
   }
 }
 
