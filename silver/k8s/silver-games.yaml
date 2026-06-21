@@ -50,8 +50,8 @@ spec:
   executor:
     cores: 1
     coreLimit: "1"
-    instances: 1
-    memory: "1g"
+    instances: 2
+    memory: "2g"
     env:
       - name: AWS_ACCESS_KEY_ID
         valueFrom:

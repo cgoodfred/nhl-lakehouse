@@ -110,12 +110,10 @@ def main() -> None:
         current_timestamp().alias("ingested_at"),
     )
 
-    row_count = games.count()
-    print(f"silver-games: writing {row_count} rows to nhl.silver.games")
+    games.writeTo("nhl.silver.games").createOrReplace()
 
-    games.coalesce(1).writeTo("nhl.silver.games").createOrReplace()
-
-    print(f"silver-games: complete (rows={row_count})")
+    written = spark.read.table("nhl.silver.games").count()
+    print(f"silver-games: complete (rows={written})")
 
 
 if __name__ == "__main__":
