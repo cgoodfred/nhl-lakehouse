@@ -9,8 +9,6 @@ we want in the StructType so the JSON parser skips the heavy arrays without
 materializing them.
 """
 
-import os
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, to_date, to_timestamp
 from pyspark.sql.types import (
@@ -69,21 +67,6 @@ GAMES_SCHEMA = StructType([
 
 def main() -> None:
     spark = SparkSession.builder.appName("silver-games").getOrCreate()
-
-    # DIAGNOSTIC: confirm what Spark's SparkConf actually contains at runtime
-    # for the credential-bearing keys we set via ${env:VAR} in the manifest.
-    # If logged value looks like the raw template ('${env:LAKEKEEPER_...'),
-    # substitution did NOT happen → entrypoint-script materialization is needed.
-    # If logged value is 'lakekeeper-spark:<secret>', substitution worked and
-    # any "invalid_client" must be a separate Keycloak issue.
-    sc_conf = spark.sparkContext.getConf()
-    print("===== CONF DIAGNOSTIC =====")
-    print(f"spark.sql.catalog.nhl.credential: {sc_conf.get('spark.sql.catalog.nhl.credential', 'UNSET')!r}")
-    print(f"spark.hadoop.fs.s3a.access.key:   {sc_conf.get('spark.hadoop.fs.s3a.access.key', 'UNSET')!r}")
-    print(f"env LAKEKEEPER_CLIENT_ID:         {os.environ.get('LAKEKEEPER_CLIENT_ID', 'UNSET')!r}")
-    print(f"env LAKEKEEPER_CLIENT_SECRET set: {bool(os.environ.get('LAKEKEEPER_CLIENT_SECRET'))}")
-    print(f"env AWS_ACCESS_KEY_ID:            {os.environ.get('AWS_ACCESS_KEY_ID', 'UNSET')!r}")
-    print("===========================")
 
     # Iceberg requires the namespace to exist before tables can be created.
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")

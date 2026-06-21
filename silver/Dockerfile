@@ -19,4 +19,13 @@ RUN set -eux; \
 
 COPY jobs/ /opt/jobs/
 
+# Wrapper entrypoint that materializes credential-bearing Spark configs from
+# env vars before exec'ing Spark's real entrypoint. Required because Spark's
+# ${env:VAR} substitution doesn't apply to operator-passed --conf args
+# (verified directly: SparkConf retained the literal template string).
+COPY entrypoint.sh /opt/silver-entrypoint.sh
+RUN chmod +x /opt/silver-entrypoint.sh
+
 USER spark
+
+ENTRYPOINT ["/opt/silver-entrypoint.sh"]

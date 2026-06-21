@@ -8,7 +8,9 @@ spec:
   pythonVersion: "3"
   mode: cluster
   image: ghcr.io/cgoodfred/nhl-lakehouse/silver:latest
-  imagePullPolicy: IfNotPresent
+  # imagePullPolicy intentionally omitted — K8s defaults to Always for :latest
+  # tags (fresh pull on each pod start, ~30s on Pi) and IfNotPresent for
+  # immutable tags like :<sha>. Picking the tag dictates the policy.
   mainApplicationFile: local:///opt/jobs/games.py
   sparkVersion: "3.5.7"
   restartPolicy:
@@ -79,7 +81,9 @@ spec:
     "spark.sql.catalog.nhl.type": "rest"
     "spark.sql.catalog.nhl.uri": "http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog"
     "spark.sql.catalog.nhl.warehouse": "nhl"
-    "spark.sql.catalog.nhl.credential": "${env:LAKEKEEPER_CLIENT_ID}:${env:LAKEKEEPER_CLIENT_SECRET}"
+    # spark.sql.catalog.nhl.credential is materialized into spark-defaults.conf
+    # by silver/entrypoint.sh from env vars. Spark's ${env:VAR} substitution
+    # does NOT apply to operator-passed --conf args.
     "spark.sql.catalog.nhl.scope": "lakekeeper"
     "spark.sql.catalog.nhl.oauth2-server-uri": "https://keycloak.cluster.cgood.dev/realms/Lakehouse/protocol/openid-connect/token"
     "spark.sql.catalog.nhl.token-refresh-enabled": "true"
@@ -93,8 +97,8 @@ spec:
     "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-    "spark.hadoop.fs.s3a.access.key": "${env:AWS_ACCESS_KEY_ID}"
-    "spark.hadoop.fs.s3a.secret.key": "${env:AWS_SECRET_ACCESS_KEY}"
+    # access.key and secret.key are materialized into spark-defaults.conf by
+    # silver/entrypoint.sh from env vars (same reason as catalog credential above).
     "spark.hadoop.fs.s3a.change.detection.version.required": "false"
     "spark.hadoop.fs.s3a.change.detection.mode": "warn"
 
