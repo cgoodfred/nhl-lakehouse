@@ -43,17 +43,19 @@ Final state:
 
 `SparkApplication` is immutable once created. After merging a code change to `main`:
 
-1. Wait for the `Build silver image` workflow to complete and note the new short SHA (`gh run list --workflow=build-silver-image.yml --limit 1`).
-2. Edit `spec.image` in the relevant `silver/k8s/*.yaml` from `:latest` (or the previous SHA) to `:<new-sha>`.
-3. Re-apply:
+1. Wait for the `Build silver image` workflow to complete (`gh run list --workflow=build-silver-image.yml --limit 1`).
+2. Re-apply:
    ```bash
    kubectl delete sparkapplication silver-games -n lakehouse
    kubectl apply -f silver/k8s/silver-games.yaml
    ```
 
-The manifest uses `imagePullPolicy: IfNotPresent`, so changing the image **tag** is what triggers a fresh pull — pod restart alone will reuse the cached `:latest`. SHA-pinning is the reliable way to know which build is actually running. Stick to SHA tags once you're past the very first apply.
+The manifest omits `imagePullPolicy`, so K8s applies its default behavior based on the image tag:
 
-If you need to force a pull of `:latest` for some reason (e.g. before any SHA-tagged build has succeeded), temporarily change `imagePullPolicy` to `Always` in the manifest for that one apply.
+- **`:latest`** (current manifest default) → K8s pulls fresh on every pod start. Good for iteration; you'll always run the newest image without manual tag changes. ~30s pull on a Pi per pod start.
+- **`:<sha>`** → K8s caches and reuses (IfNotPresent). Good for reproducible runs — pin a known-good SHA when you want stability.
+
+To pin a SHA, edit `spec.image` to `ghcr.io/cgoodfred/nhl-lakehouse/silver:<full-sha>` and `kubectl apply` — no other changes needed. The tag itself dictates the pull behavior.
 
 ## Available jobs
 

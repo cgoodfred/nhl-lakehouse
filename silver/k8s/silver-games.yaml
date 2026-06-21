@@ -8,7 +8,9 @@ spec:
   pythonVersion: "3"
   mode: cluster
   image: ghcr.io/cgoodfred/nhl-lakehouse/silver:latest
-  imagePullPolicy: IfNotPresent
+  # imagePullPolicy intentionally omitted — K8s defaults to Always for :latest
+  # tags (fresh pull on each pod start, ~30s on Pi) and IfNotPresent for
+  # immutable tags like :<sha>. Picking the tag dictates the policy.
   mainApplicationFile: local:///opt/jobs/games.py
   sparkVersion: "3.5.7"
   restartPolicy:
