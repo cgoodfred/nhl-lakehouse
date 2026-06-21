@@ -1,18 +1,3 @@
-resource "random_password" "lakekeeper_encryption_key" {
-  length  = 32
-  special = false
-}
-
-resource "kubernetes_secret" "lakekeeper_encryption_key" {
-  metadata {
-    name      = "lakekeeper-encryption-key"
-    namespace = kubernetes_namespace.lakehouse.metadata[0].name
-  }
-  data = {
-    encryption-key = random_password.lakekeeper_encryption_key.result
-  }
-}
-
 resource "helm_release" "lakekeeper" {
   name       = "lakekeeper"
   repository = "https://lakekeeper.github.io/lakekeeper-charts"
@@ -48,11 +33,6 @@ resource "helm_release" "lakekeeper" {
       }
 
       catalog = {
-        image = {
-          # Pin to a specific version rather than latest for reproducibility.
-          # Bump along with the chart version.
-          tag = "v0.11.0"
-        }
         config = {
           LAKEKEEPER__BASE_URI = "http://lakekeeper.${kubernetes_namespace.lakehouse.metadata[0].name}.svc.cluster.local:8181"
         }
