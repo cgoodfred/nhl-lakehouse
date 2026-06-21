@@ -1,3 +1,16 @@
+# Spark, the bootstrap UI workflow, and any other client needs these to obtain
+# OIDC tokens from Keycloak. Kept here so the secret lives next to its consumer.
+resource "kubernetes_secret" "lakekeeper_client_secret" {
+  metadata {
+    name      = "lakekeeper-client-secret"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  data = {
+    client-id     = var.lakekeeper_spark_client_id
+    client-secret = var.lakekeeper_spark_client_secret
+  }
+}
+
 resource "helm_release" "lakekeeper" {
   name       = "lakekeeper"
   repository = "https://lakekeeper.github.io/lakekeeper-charts"
