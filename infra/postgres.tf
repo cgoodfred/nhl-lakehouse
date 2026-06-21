@@ -29,6 +29,14 @@ resource "helm_release" "lakekeeper_pg" {
 
   values = [
     yamlencode({
+      # As of mid-2025, Bitnami's free postgres images moved from `bitnami/`
+      # to `bitnamilegacy/` (the `bitnami/` namespace now holds paid Premium
+      # builds). The chart still defaults to `bitnami/postgresql:<tag>` which
+      # 404s on Docker Hub. Override to bitnamilegacy/.
+      image = {
+        repository = "bitnamilegacy/postgresql"
+      }
+
       auth = {
         database       = "lakekeeper"
         username       = "lakekeeper"
