@@ -50,12 +50,9 @@ Final state:
    kubectl apply -f silver/k8s/silver-games.yaml
    ```
 
-The manifest omits `imagePullPolicy`, so K8s applies its default behavior based on the image tag:
+The manifest sets `imagePullPolicy: Always` because the default image tag is `:latest`, which moves between builds. The Spark Operator's own default is `IfNotPresent`, which would reuse a stale cached image on the node — leaving to K8s's auto-default doesn't help here because the operator sets the policy before the pod spec reaches the kubelet.
 
-- **`:latest`** (current manifest default) → K8s pulls fresh on every pod start. Good for iteration; you'll always run the newest image without manual tag changes. ~30s pull on a Pi per pod start.
-- **`:<sha>`** → K8s caches and reuses (IfNotPresent). Good for reproducible runs — pin a known-good SHA when you want stability.
-
-To pin a SHA, edit `spec.image` to `ghcr.io/cgoodfred/nhl-lakehouse/silver:<full-sha>` and `kubectl apply` — no other changes needed. The tag itself dictates the pull behavior.
+For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodfred/nhl-lakehouse/silver:<full-sha>`) and you can flip `imagePullPolicy` to `IfNotPresent` for faster repeated pod starts on the same SHA. SHA pin is the right move when you want to know exactly which build ran.
 
 ## Available jobs
 
