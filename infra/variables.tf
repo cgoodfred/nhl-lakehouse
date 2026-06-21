@@ -29,3 +29,22 @@ variable "backfill_season" {
   default     = ""
   sensitive   = false
 }
+
+variable "keycloak_issuer_url" {
+  type        = string
+  description = "Keycloak OIDC issuer URL, e.g. https://keycloak.example.com/realms/<realm>"
+  sensitive   = false
+}
+
+variable "lakekeeper_spark_client_id" {
+  type        = string
+  description = "Keycloak client ID used by Spark and the bootstrap Job to obtain tokens via client_credentials"
+  default     = "lakekeeper-spark"
+  sensitive   = false
+}
+
+variable "lakekeeper_spark_client_secret" {
+  type        = string
+  description = "Keycloak client secret for the lakekeeper_spark_client_id client"
+  sensitive   = true
+}
