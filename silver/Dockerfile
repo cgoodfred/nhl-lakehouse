@@ -18,6 +18,7 @@ RUN set -eux; \
       https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar
 
 COPY jobs/ /opt/jobs/
+COPY common.py /opt/jobs/common.py
 
 # Wrapper entrypoint that materializes credential-bearing Spark configs from
 # env vars before exec'ing Spark's real entrypoint. Required because Spark's

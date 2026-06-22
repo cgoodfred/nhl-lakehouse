@@ -1,0 +1,91 @@
+{
+  "id": 2024020001,
+  "plays": [
+    {
+      "eventId": 1,
+      "sortOrder": 1,
+      "typeCode": 502,
+      "typeDescKey": "faceoff",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "00:00",
+      "timeRemaining": "20:00",
+      "situationCode": "1551",
+      "homeTeamDefendingSide": "right",
+      "details": {
+        "eventOwnerTeamId": 26,
+        "losingPlayerId": 8482124,
+        "winningPlayerId": 8473604,
+        "xCoord": 0,
+        "yCoord": 0,
+        "zoneCode": "N"
+      }
+    },
+    {
+      "eventId": 2,
+      "sortOrder": 2,
+      "typeCode": 505,
+      "typeDescKey": "goal",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "01:23",
+      "timeRemaining": "18:37",
+      "situationCode": "1451",
+      "homeTeamDefendingSide": "right",
+      "details": {
+        "xCoord": -73,
+        "yCoord": 3,
+        "zoneCode": "O",
+        "shotType": "wrist",
+        "scoringPlayerId": 8480113,
+        "scoringPlayerTotal": 1,
+        "assist1PlayerId": 8478398,
+        "eventOwnerTeamId": 52,
+        "goalieInNetId": 8475311,
+        "awayScore": 0,
+        "homeScore": 1
+      }
+    },
+    {
+      "eventId": 3,
+      "sortOrder": 3,
+      "typeCode": 506,
+      "typeDescKey": "shot-on-goal",
+      "periodDescriptor": {"number": 3, "periodType": "REG"},
+      "timeInPeriod": "19:30",
+      "timeRemaining": "00:30",
+      "situationCode": "0551",
+      "homeTeamDefendingSide": "right",
+      "details": {
+        "xCoord": 85,
+        "yCoord": 9,
+        "zoneCode": "O",
+        "shotType": "wrist",
+        "shootingPlayerId": 8477942,
+        "eventOwnerTeamId": 26,
+        "awaySOG": 5,
+        "homeSOG": 0
+      }
+    },
+    {
+      "eventId": 4,
+      "sortOrder": 4,
+      "typeCode": 509,
+      "typeDescKey": "penalty",
+      "periodDescriptor": {"number": 2, "periodType": "REG"},
+      "timeInPeriod": "05:00",
+      "timeRemaining": "15:00",
+      "situationCode": "1551",
+      "homeTeamDefendingSide": "right",
+      "details": {
+        "xCoord": -59,
+        "yCoord": -38,
+        "zoneCode": "D",
+        "typeCode": "MIN",
+        "descKey": "holding",
+        "duration": 2,
+        "committedByPlayerId": 8482124,
+        "drawnByPlayerId": 8476460,
+        "eventOwnerTeamId": 26
+      }
+    }
+  ]
+}

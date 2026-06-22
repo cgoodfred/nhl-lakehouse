@@ -9,8 +9,9 @@ we want in the StructType so the JSON parser skips the heavy arrays without
 materializing them.
 """
 
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, to_date, to_timestamp
+
+from common import get_spark
 from pyspark.sql.types import (
     BooleanType,
     IntegerType,
@@ -66,10 +67,7 @@ GAMES_SCHEMA = StructType([
 
 
 def main() -> None:
-    spark = SparkSession.builder.appName("silver-games").getOrCreate()
-
-    # Iceberg requires the namespace to exist before tables can be created.
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")
+    spark = get_spark("silver-games")
 
     raw = (
         spark.read.schema(GAMES_SCHEMA)
