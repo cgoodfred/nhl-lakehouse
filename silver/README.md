@@ -67,10 +67,13 @@ Jobs share `silver/common.py` (just a `get_spark(app_name)` helper today). The D
 
 Transformation logic lives in pure functions (e.g. `transform_plays` in `plays.py`) so it can be exercised against fixtures with a local SparkSession. Tests live under `silver/tests/`.
 
+Dependencies (`pyspark`, `pytest`, `ruff`) and tool config (ruff lint rules, pytest test discovery) are declared in `silver/pyproject.toml` and pinned in `silver/uv.lock`. Install [uv](https://docs.astral.sh/uv/) (`brew install uv`) then:
+
 ```bash
 cd silver
-pip install pytest 'pyspark==3.5.7'
-pytest tests/
+uv sync --group dev
+uv run pytest
+uv run ruff check .
 ```
 
 Requires Java 17 on the path (`brew install openjdk@17` on macOS) so PySpark can launch a local JVM. `conftest.py` adjusts `sys.path` so test modules can `from plays import ...` the same way the in-container jobs do.

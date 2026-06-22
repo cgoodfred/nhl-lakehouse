@@ -29,5 +29,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - name: Run pytest
-        run: uv run --with 'pyspark==3.5.7' --with pytest pytest tests/
+      - name: uv sync
+        run: uv sync --group dev
+
+      - name: ruff
+        run: uv run ruff check .
+
+      - name: pytest
+        run: uv run pytest
