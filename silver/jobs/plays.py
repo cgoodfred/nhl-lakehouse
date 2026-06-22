@@ -51,9 +51,10 @@ _DETAILS_STRUCT = StructType([
     StructField("scoringPlayerTotal", IntegerType()),
     StructField("assist1PlayerTotal", IntegerType()),
     StructField("assist2PlayerTotal", IntegerType()),
-    # Shot info
+    # Shot info / stoppage reasons
     StructField("shotType", StringType()),
     StructField("reason", StringType()),
+    StructField("secondaryReason", StringType()),
     # Score state
     StructField("awayScore", IntegerType()),
     StructField("homeScore", IntegerType()),
@@ -63,6 +64,7 @@ _DETAILS_STRUCT = StructType([
     StructField("typeCode", StringType()),
     StructField("descKey", StringType()),
     StructField("duration", IntegerType()),
+    StructField("servedByPlayerId", IntegerType()),
     # Highlight URLs (goal-only)
     StructField("highlightClipSharingUrl", StringType()),
     StructField("highlightClipSharingUrlFr", StringType()),
@@ -87,6 +89,7 @@ _PLAY_STRUCT = StructType([
     StructField("timeRemaining", StringType()),
     StructField("situationCode", StringType()),
     StructField("homeTeamDefendingSide", StringType()),
+    StructField("pptReplayUrl", StringType()),
     StructField("details", _DETAILS_STRUCT),
 ])
 
@@ -125,6 +128,7 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
         col("p.timeInPeriod").alias("time_in_period"),
         col("p.timeRemaining").alias("time_remaining"),
         col("p.homeTeamDefendingSide").alias("home_team_defending_side"),
+        col("p.pptReplayUrl").alias("ppt_replay_url"),
         col("p.situationCode").alias("situation_code"),
         # Details: coordinates / event-owning team
         col("p.details.xCoord").alias("x_coord"),
@@ -149,9 +153,10 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
         col("p.details.scoringPlayerTotal").alias("scoring_player_total"),
         col("p.details.assist1PlayerTotal").alias("assist1_player_total"),
         col("p.details.assist2PlayerTotal").alias("assist2_player_total"),
-        # Details: shot info
+        # Details: shot info / stoppage reasons
         col("p.details.shotType").alias("shot_type"),
         col("p.details.reason").alias("reason"),
+        col("p.details.secondaryReason").alias("secondary_reason"),
         # Details: score state
         col("p.details.awayScore").alias("away_score"),
         col("p.details.homeScore").alias("home_score"),
@@ -162,6 +167,7 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
         col("p.details.typeCode").alias("penalty_type_code"),
         col("p.details.descKey").alias("penalty_desc_key"),
         col("p.details.duration").alias("penalty_duration"),
+        col("p.details.servedByPlayerId").alias("served_by_player_id"),
         # Details: highlight URLs (goal-only)
         col("p.details.highlightClipSharingUrl").alias("highlight_clip_sharing_url"),
         col("p.details.highlightClipSharingUrlFr").alias("highlight_clip_sharing_url_fr"),

@@ -30,6 +30,7 @@
       "timeRemaining": "18:37",
       "situationCode": "1451",
       "homeTeamDefendingSide": "right",
+      "pptReplayUrl": "https://wsr.nhle.com/sprites/20242025/2024020001/ev2.json",
       "details": {
         "xCoord": -73,
         "yCoord": 3,
@@ -80,11 +81,27 @@
         "yCoord": -38,
         "zoneCode": "D",
         "typeCode": "MIN",
-        "descKey": "holding",
+        "descKey": "too-many-men-on-the-ice",
         "duration": 2,
         "committedByPlayerId": 8482124,
         "drawnByPlayerId": 8476460,
+        "servedByPlayerId": 8478403,
         "eventOwnerTeamId": 26
+      }
+    },
+    {
+      "eventId": 5,
+      "sortOrder": 5,
+      "typeCode": 516,
+      "typeDescKey": "stoppage",
+      "periodDescriptor": {"number": 2, "periodType": "REG"},
+      "timeInPeriod": "10:15",
+      "timeRemaining": "09:45",
+      "situationCode": "1551",
+      "homeTeamDefendingSide": "right",
+      "details": {
+        "reason": "icing",
+        "secondaryReason": "icing"
       }
     }
   ]

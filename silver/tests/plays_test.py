@@ -32,8 +32,8 @@ def _by_event_id(plays_df):
 
 def test_schema_parses_and_row_count_matches(spark, fixtures_dir):
     plays = transform_plays(_load_raw(spark, fixtures_dir))
-    # fixture has 4 plays in the array
-    assert plays.count() == 4
+    # fixture has 5 plays in the array
+    assert plays.count() == 5
 
 
 def test_key_fields_non_null(spark, fixtures_dir):
@@ -88,12 +88,24 @@ def test_details_projection_goal(spark, fixtures_dir):
     assert goal.home_score == 1
     assert goal.event_owner_team_id == 52
     assert goal.zone_code == "O"
+    # Goal events carry the player+puck tracking URL at play level
+    assert goal.ppt_replay_url == "https://wsr.nhle.com/sprites/20242025/2024020001/ev2.json"
 
 
 def test_details_projection_penalty(spark, fixtures_dir):
     by_id = _by_event_id(transform_plays(_load_raw(spark, fixtures_dir)))
     penalty = by_id[4]
-    assert penalty.penalty_desc_key == "holding"
+    assert penalty.penalty_desc_key == "too-many-men-on-the-ice"
     assert penalty.penalty_duration == 2
     assert penalty.penalty_type_code == "MIN"
     assert penalty.committed_by_player_id == 8482124
+    # Bench minors are served by a player other than the one who committed it
+    assert penalty.served_by_player_id == 8478403
+
+
+def test_details_projection_stoppage(spark, fixtures_dir):
+    # Stoppages have details.reason AND sometimes details.secondaryReason
+    by_id = _by_event_id(transform_plays(_load_raw(spark, fixtures_dir)))
+    stoppage = by_id[5]
+    assert stoppage.reason == "icing"
+    assert stoppage.secondary_reason == "icing"
