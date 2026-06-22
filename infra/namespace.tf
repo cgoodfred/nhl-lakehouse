@@ -12,10 +12,10 @@ resource "kubernetes_resource_quota" "lakehouse_quota" {
 
   spec {
     hard = {
-      "requests.cpu"    = "8"
-      "requests.memory" = "16Gi"
-      "limits.cpu"      = "8"
-      "limits.memory"   = "16Gi"
+      "requests.cpu"    = "10"
+      "requests.memory" = "32Gi"
+      "limits.cpu"      = "10"
+      "limits.memory"   = "32Gi"
 
       "persistentvolumeclaims" = "10"
       "requests.storage"       = "400Gi"
