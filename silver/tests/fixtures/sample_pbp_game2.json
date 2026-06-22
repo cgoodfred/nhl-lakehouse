@@ -1,0 +1,31 @@
+{
+  "id": 2024020055,
+  "gameDate": "2024-10-25",
+  "rosterSpots": [
+    {
+      "playerId": 8480113,
+      "firstName": {"default": "Alex"},
+      "lastName": {"default": "Iafallo"},
+      "positionCode": "C",
+      "teamId": 52,
+      "sweaterNumber": 19
+    },
+    {
+      "playerId": 8482124,
+      "firstName": {"default": "Brandt"},
+      "lastName": {"default": "Clarke"},
+      "positionCode": "D",
+      "teamId": 26,
+      "sweaterNumber": 8
+    },
+    {
+      "playerId": 8478403,
+      "firstName": {"default": "Quinton"},
+      "lastName": {"default": "Byfield"},
+      "positionCode": "C",
+      "teamId": 26,
+      "sweaterNumber": 55
+    }
+  ],
+  "plays": []
+}
