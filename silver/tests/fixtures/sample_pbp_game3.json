@@ -1,0 +1,15 @@
+{
+  "id": 2024020099,
+  "gameDate": "2024-10-25",
+  "rosterSpots": [
+    {
+      "playerId": 8471685,
+      "firstName": {"default": "Anze"},
+      "lastName": {"default": "Kopitar"},
+      "positionCode": "C",
+      "teamId": 26,
+      "sweaterNumber": 11
+    }
+  ],
+  "plays": []
+}

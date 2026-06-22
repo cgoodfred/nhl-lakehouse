@@ -25,6 +25,14 @@
       "positionCode": "C",
       "teamId": 26,
       "sweaterNumber": 55
+    },
+    {
+      "playerId": 8471685,
+      "firstName": {"default": "Anze"},
+      "lastName": {"default": "Kopitar"},
+      "positionCode": "L",
+      "teamId": 26,
+      "sweaterNumber": 11
     }
   ],
   "plays": []

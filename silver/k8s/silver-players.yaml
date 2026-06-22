@@ -93,7 +93,7 @@ spec:
     "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-    # access.key and secret.key are injected into spark-defaults.conf by
+    # access.key and secret.key are injected into spark.properties by
     # silver/entrypoint.sh from env vars (same reason as catalog credential above).
     "spark.hadoop.fs.s3a.change.detection.version.required": "false"
     "spark.hadoop.fs.s3a.change.detection.mode": "warn"

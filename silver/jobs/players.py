@@ -13,7 +13,16 @@ rosterSpots fields we need; plays[] is skipped by the JSON parser.
 """
 
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, current_timestamp, explode, max, max_by, min, to_date
+from pyspark.sql.functions import (
+    col,
+    current_timestamp,
+    explode,
+    max,
+    max_by,
+    min,
+    struct,
+    to_date,
+)
 from pyspark.sql.types import (
     ArrayType,
     IntegerType,
@@ -52,14 +61,20 @@ def transform_players(raw_df: DataFrame) -> DataFrame:
     S3 or the catalog.
     """
     exploded = raw_df.select(
+        col("id").alias("game_id"),
         to_date("gameDate", "yyyy-MM-dd").alias("game_date"),
         explode("rosterSpots").alias("r"),
     )
 
+    # Tie-break with game_id so a player appearing in multiple games on the
+    # same date deterministically picks the higher game_id. Struct comparison
+    # is field-by-field, so game_date is the primary key and game_id breaks ties.
+    sort_key = struct(col("game_date"), col("game_id"))
+
     players = exploded.groupBy(col("r.playerId").alias("player_id")).agg(
-        max_by(col("r.firstName.default"), col("game_date")).alias("first_name"),
-        max_by(col("r.lastName.default"), col("game_date")).alias("last_name"),
-        max_by(col("r.positionCode"), col("game_date")).alias("position_code"),
+        max_by(col("r.firstName.default"), sort_key).alias("first_name"),
+        max_by(col("r.lastName.default"), sort_key).alias("last_name"),
+        max_by(col("r.positionCode"), sort_key).alias("position_code"),
         min("game_date").alias("first_seen_date"),
         max("game_date").alias("last_seen_date"),
     )

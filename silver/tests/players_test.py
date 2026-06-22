@@ -23,9 +23,10 @@ def _by_player(players_df):
 
 
 def test_schema_parses_and_dedups_across_games(spark, fixtures_dir):
-    # 3 players in game 1 + 3 players in game 2 with 2 overlapping = 4 unique
+    # game 1: 3 players. game 2: 4 players (1 new + 2 overlapping with g1 + Kopitar).
+    # game 3: 1 player (Kopitar again, same date as g2). Unique union = 5.
     players = transform_players(_load_raw(spark, fixtures_dir))
-    assert players.count() == 4
+    assert players.count() == 5
 
 
 def test_key_fields_non_null(spark, fixtures_dir):
@@ -72,3 +73,17 @@ def test_single_game_player_position(spark, fixtures_dir):
     assert kuemper.position_code == "G"
     assert kuemper.first_name == "Darcy"
     assert kuemper.last_name == "Kuemper"
+
+
+def test_same_date_tie_break_by_game_id(spark, fixtures_dir):
+    # Player 8471685 (Kopitar) appears on 2024-10-25 in both:
+    #   - game 2024020055 as position "L"
+    #   - game 2024020099 as position "C"
+    # Same date → max_by(struct(game_date, game_id)) must tie-break on
+    # game_id and pick "C" deterministically. Without the tie-break the
+    # result would be non-deterministic across runs.
+    by_id = _by_player(transform_players(_load_raw(spark, fixtures_dir)))
+    kopitar = by_id[8471685]
+    assert kopitar.position_code == "C"
+    assert kopitar.first_seen_date == datetime.date(2024, 10, 25)
+    assert kopitar.last_seen_date == datetime.date(2024, 10, 25)
