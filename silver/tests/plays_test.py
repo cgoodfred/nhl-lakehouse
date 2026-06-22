@@ -13,9 +13,14 @@ from plays import PLAYS_SCHEMA, transform_plays
 
 def _load_raw(spark, fixtures_dir):
     """Read the sample PBP envelope and attach the season column that path
-    partition discovery would normally supply in the cluster."""
+    partition discovery would normally supply in the cluster.
+
+    multiLine=True so the fixture can be pretty-printed for human readability;
+    production bronze files are single-line per record, which Spark's default
+    json() reader handles natively."""
     return (
         spark.read.schema(PLAYS_SCHEMA)
+        .option("multiLine", "true")
         .json(str(fixtures_dir / "sample_pbp.json"))
         .withColumn("season", lit(20242025))
     )
