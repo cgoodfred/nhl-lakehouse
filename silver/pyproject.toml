@@ -1,0 +1,35 @@
+[project]
+name = "nhl-lakehouse-silver"
+version = "0.1.0"
+description = "PySpark transformations from bronze JSON to Iceberg silver tables."
+requires-python = ">=3.12"
+dependencies = ["pyspark==3.5.7"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort (import order)
+    "B",   # bugbear (common bug patterns)
+    "UP",  # pyupgrade (modern syntax)
+    "RUF", # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+# silver/ is not a packaged module — modules are copied directly to /opt/jobs/
+# in the container. Declare local module names explicitly so isort groups them
+# as first-party rather than alphabetizing them in with pyspark.
+known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -10,8 +10,6 @@ materializing them.
 """
 
 from pyspark.sql.functions import col, current_timestamp, to_date, to_timestamp
-
-from common import get_spark
 from pyspark.sql.types import (
     BooleanType,
     IntegerType,
@@ -20,6 +18,8 @@ from pyspark.sql.types import (
     StructField,
     StructType,
 )
+
+from common import get_spark
 
 BRONZE_PATH = "s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
