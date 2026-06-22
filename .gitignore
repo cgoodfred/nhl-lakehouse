@@ -21,3 +21,9 @@
 # Go build artifacts
 /ingest/ingest
 *.test
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

@@ -59,3 +59,18 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 | Job manifest | PySpark | Target table | Source |
 |---|---|---|---|
 | `silver-games.yaml` | `games.py` | `nhl.silver.games` | bronze PBP envelopes |
+| `silver-plays.yaml` | `plays.py` | `nhl.silver.plays` (partitioned by `season`) | bronze PBP envelopes (plays array) |
+
+Jobs share `silver/common.py` (just a `get_spark(app_name)` helper today). The Dockerfile copies it next to the jobs so `from common import ...` works in-cluster.
+
+## Tests
+
+Transformation logic lives in pure functions (e.g. `transform_plays` in `plays.py`) so it can be exercised against fixtures with a local SparkSession. Tests live under `silver/tests/`.
+
+```bash
+cd silver
+pip install pytest 'pyspark==3.5.7'
+pytest tests/
+```
+
+Requires Java 17 on the path (`brew install openjdk@17` on macOS) so PySpark can launch a local JVM. `conftest.py` adjusts `sys.path` so test modules can `from plays import ...` the same way the in-container jobs do.
