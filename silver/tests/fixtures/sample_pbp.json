@@ -1,5 +1,32 @@
 {
   "id": 2024020001,
+  "gameDate": "2024-10-08",
+  "rosterSpots": [
+    {
+      "playerId": 8480113,
+      "firstName": {"default": "Alex"},
+      "lastName": {"default": "Iafallo"},
+      "positionCode": "L",
+      "teamId": 52,
+      "sweaterNumber": 19
+    },
+    {
+      "playerId": 8475311,
+      "firstName": {"default": "Darcy"},
+      "lastName": {"default": "Kuemper"},
+      "positionCode": "G",
+      "teamId": 26,
+      "sweaterNumber": 35
+    },
+    {
+      "playerId": 8482124,
+      "firstName": {"default": "Brandt"},
+      "lastName": {"default": "Clarke"},
+      "positionCode": "D",
+      "teamId": 26,
+      "sweaterNumber": 8
+    }
+  ],
   "plays": [
     {
       "eventId": 1,
