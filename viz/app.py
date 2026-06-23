@@ -73,19 +73,27 @@ def _catalog() -> RestCatalog:
 
 
 @st.cache_data(ttl=300)
-def _load_shots():
-    """Load gold.player_shots as an Arrow table -> DuckDB connection."""
+def _shots_arrow():
+    """Load gold.player_shots as an Arrow table. Arrow tables are
+    serializable so st.cache_data can persist them across reruns; the
+    DuckDB connection that wraps them is created per-rerun below."""
     catalog = _catalog()
     try:
-        arrow = catalog.load_table("gold.player_shots").scan().to_arrow()
+        return catalog.load_table("gold.player_shots").scan().to_arrow()
     except Exception as exc:
         st.error(
             "Could not load gold.player_shots. Has the gold Spark job run yet?\n\n"
             f"`{exc}`"
         )
         st.stop()
+
+
+def _shots_connection():
+    """Fresh DuckDB connection with the cached Arrow table registered.
+    Cheap (in-memory zero-copy register); a new connection per script
+    rerun is fine because the heavy lift (the catalog scan) is cached."""
     con = duckdb.connect()
-    con.register("shots", arrow)
+    con.register("shots", _shots_arrow())
     return con
 
 
@@ -184,7 +192,7 @@ def main():
         "rink coordinates where the shot was taken from."
     )
 
-    con = _load_shots()
+    con = _shots_connection()
 
     seasons = [
         r[0] for r in
