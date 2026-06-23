@@ -1,0 +1,109 @@
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: silver-game-rosters
+  namespace: lakehouse
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  image: ghcr.io/cgoodfred/nhl-lakehouse/silver:latest
+  imagePullPolicy: Always
+  mainApplicationFile: local:///opt/jobs/game_rosters.py
+  sparkVersion: "3.5.7"
+  restartPolicy:
+    type: Never
+
+  driver:
+    cores: 2
+    coreLimit: "2"
+    memory: "2g"
+    serviceAccount: silver-spark
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: ingest-s3-creds
+            key: access_key
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: ingest-s3-creds
+            key: secret_key
+      - name: AWS_REGION
+        value: "us-east-1"
+      - name: LAKEKEEPER_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: lakekeeper-client-secret
+            key: client-id
+      - name: LAKEKEEPER_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: lakekeeper-client-secret
+            key: client-secret
+
+  executor:
+    cores: 1
+    coreLimit: "1"
+    instances: 2
+    memory: "1g"
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: ingest-s3-creds
+            key: access_key
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: ingest-s3-creds
+            key: secret_key
+      - name: AWS_REGION
+        value: "us-east-1"
+      - name: LAKEKEEPER_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: lakekeeper-client-secret
+            key: client-id
+      - name: LAKEKEEPER_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: lakekeeper-client-secret
+            key: client-secret
+
+  sparkConf:
+    "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    "spark.sql.catalog.nhl": "org.apache.iceberg.spark.SparkCatalog"
+    "spark.sql.catalog.nhl.type": "rest"
+    "spark.sql.catalog.nhl.uri": "http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog"
+    "spark.sql.catalog.nhl.warehouse": "nhl"
+    # spark.sql.catalog.nhl.credential is injected into spark.properties (the
+    # file spark-submit reads via --properties-file) by silver/entrypoint.sh
+    # from env vars. Spark's ${env:VAR} substitution does not apply when
+    # Iceberg's SparkCatalog reads its options via SparkConf.getAllWithPrefix.
+    "spark.sql.catalog.nhl.scope": "lakekeeper"
+    "spark.sql.catalog.nhl.oauth2-server-uri": "https://keycloak.cluster.cgood.dev/realms/Lakehouse/protocol/openid-connect/token"
+    "spark.sql.catalog.nhl.token-refresh-enabled": "true"
+    "spark.sql.catalog.nhl.io-impl": "org.apache.iceberg.aws.s3.S3FileIO"
+    "spark.sql.catalog.nhl.s3.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+    "spark.sql.catalog.nhl.s3.path-style-access": "true"
+    "spark.sql.catalog.nhl.s3.region": "us-east-1"
+    # Iceberg's default RESTMetricsReporter POSTs post-commit metrics back to
+    # the catalog with a token that isn't reliably refreshed in our OAuth2
+    # flow, causing a NotAuthorizedException to propagate into Python after
+    # the snapshot commits — write succeeds but the job is marked FAILED.
+    # LoggingMetricsReporter writes the same metrics to driver stdout instead.
+    "spark.sql.catalog.nhl.rest.metrics-reporter-impl": "org.apache.iceberg.metrics.LoggingMetricsReporter"
+
+    "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+    "spark.hadoop.fs.s3a.path.style.access": "true"
+    "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    # access.key and secret.key are injected into spark.properties by
+    # silver/entrypoint.sh from env vars (same reason as catalog credential above).
+    "spark.hadoop.fs.s3a.change.detection.version.required": "false"
+    "spark.hadoop.fs.s3a.change.detection.mode": "warn"
+
+    "spark.sql.shuffle.partitions": "16"
+    "spark.sql.session.timeZone": "UTC"
+    "spark.kubernetes.memoryOverheadFactor": "0.4"
