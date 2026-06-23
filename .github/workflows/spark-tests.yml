@@ -1,20 +1,20 @@
-name: Silver tests
+name: Spark tests
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'silver/**'
-      - '.github/workflows/silver-tests.yml'
+      - 'spark/**'
+      - '.github/workflows/spark-tests.yml'
   workflow_dispatch:
 
 jobs:
   pytest:
-    name: Pytest (silver)
+    name: Pytest (spark)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: silver
+        working-directory: spark
     steps:
       - uses: actions/checkout@v4
 

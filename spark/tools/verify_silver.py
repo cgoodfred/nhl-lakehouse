@@ -15,7 +15,7 @@ Auto-resolves credentials via kubectl. Requires port-forwards:
     kubectl port-forward -n lakehouse svc/seaweedfs-s3 8333:8333 &
 
 Just run it:
-    ./silver/tools/verify_silver.py
+    ./spark/tools/verify_silver.py
 """
 
 import base64

@@ -1,11 +1,11 @@
-name: Build silver image
+name: Build spark image
 
 on:
   push:
     branches: [main]
     paths:
-      - 'silver/**'
-      - '.github/workflows/build-silver-image.yml'
+      - 'spark/**'
+      - '.github/workflows/build-spark-image.yml'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: build-silver-image
+  group: build-spark-image
   cancel-in-progress: false
 
 jobs:
@@ -34,12 +34,12 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: silver
-          file: silver/Dockerfile
+          context: spark
+          file: spark/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/cgoodfred/nhl-lakehouse/silver:latest
-            ghcr.io/cgoodfred/nhl-lakehouse/silver:${{ github.sha }}
+            ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
+            ghcr.io/cgoodfred/nhl-lakehouse/spark:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
