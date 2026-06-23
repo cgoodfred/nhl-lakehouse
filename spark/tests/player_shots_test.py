@@ -8,6 +8,7 @@ then exercise the goal filter + the player/team/game joins.
 import datetime
 
 from pyspark.sql.types import (
+    BooleanType,
     DateType,
     IntegerType,
     LongType,
@@ -26,10 +27,13 @@ PLAYS_SCHEMA = StructType([
     StructField("scoring_player_id", IntegerType()),
     StructField("event_owner_team_id", IntegerType()),
     StructField("period_number", IntegerType()),
+    StructField("period_type", StringType()),
     StructField("time_in_period", StringType()),
     StructField("x_coord", IntegerType()),
     StructField("y_coord", IntegerType()),
     StructField("shot_type", StringType()),
+    StructField("strength_state", StringType()),
+    StructField("is_empty_net", BooleanType()),
     StructField("home_score", IntegerType()),
     StructField("away_score", IntegerType()),
     StructField("ppt_replay_url", StringType()),
@@ -57,15 +61,16 @@ TEAMS_SCHEMA = StructType([
 #   game 2024020055 on 2024-10-25 — 1 goal (event 200)
 # Columns (positional with PLAYS_SCHEMA above):
 #   event_id, game_id, season, type_desc_key, scoring_player_id,
-#   event_owner_team_id, period_number, time_in_period, x_coord, y_coord,
-#   shot_type, home_score, away_score, ppt_replay_url
+#   event_owner_team_id, period_number, period_type, time_in_period,
+#   x_coord, y_coord, shot_type, strength_state, is_empty_net,
+#   home_score, away_score, ppt_replay_url
 _URL_100 = "https://wsr.nhle.com/sprites/x/100.json"
 _URL_200 = "https://wsr.nhle.com/sprites/x/200.json"
 PLAYS_DATA = [
-    (100, 2024020001, 20242025, "goal", 8480113, 52, 1, "01:23", -73, 3, "wrist", 0, 1, _URL_100),
-    (101, 2024020001, 20242025, "shot-on-goal", 8477942, 26, 2, "05:00", 85, 9, "wrist", 0, 1, None),  # noqa: E501
-    (102, 2024020001, 20242025, "goal", 8478403, 26, 3, "10:00", None, None, "snap", 1, 1, None),
-    (200, 2024020055, 20242025, "goal", 8471685, 26, 2, "08:45", 60, -20, "snap", 2, 1, _URL_200),
+    (100, 2024020001, 20242025, "goal", 8480113, 52, 1, "REG", "01:23", -73, 3, "wrist", "PP", False, 0, 1, _URL_100),  # noqa: E501
+    (101, 2024020001, 20242025, "shot-on-goal", 8477942, 26, 2, "REG", "05:00", 85, 9, "wrist", "EV", False, 0, 1, None),  # noqa: E501
+    (102, 2024020001, 20242025, "goal", 8478403, 26, 3, "REG", "10:00", None, None, "snap", "EV", False, 1, 1, None),  # noqa: E501
+    (200, 2024020055, 20242025, "goal", 8471685, 26, 2, "REG", "08:45", 60, -20, "snap", "EV", True, 2, 1, _URL_200),  # noqa: E501
 ]
 
 GAMES_DATA = [
@@ -122,12 +127,17 @@ def test_joins_produce_player_and_team_names(spark):
     assert iafallo_goal.x_coord == -73
     assert iafallo_goal.y_coord == 3
     assert iafallo_goal.shot_type == "wrist"
+    assert iafallo_goal.period_type == "REG"
+    assert iafallo_goal.strength_state == "PP"
+    assert iafallo_goal.is_empty_net is False
     assert iafallo_goal.ppt_replay_url == "https://wsr.nhle.com/sprites/x/100.json"
 
     kopitar_goal = by_event[200]
     assert kopitar_goal.player_name == "Anze Kopitar"
     assert kopitar_goal.team_abbrev == "LAK"
     assert kopitar_goal.game_date == datetime.date(2024, 10, 25)
+    assert kopitar_goal.strength_state == "EV"
+    assert kopitar_goal.is_empty_net is True
 
 
 def test_non_goal_events_excluded(spark):

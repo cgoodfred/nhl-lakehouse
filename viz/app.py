@@ -1,30 +1,20 @@
 """NHL goal map — Streamlit app reading gold.player_shots from Iceberg.
 
-Filter cascade: season → team → player. Renders each goal as a marker
-on an NHL rink (Plotly shapes for the rink, scatter trace for shots).
+Filter cascade: season -> team -> player. Renders each goal as a marker
+on a top-down NHL rink (boards drawn with 28ft rounded corners,
+faceoff dots/circles, blue lines, goal lines, and creases). Three
+breakdown pie charts at the bottom: shot type, period, strength state.
 
 Connects to the Lakekeeper REST catalog and SeaweedFS S3-compatible
 storage via PyIceberg. In-cluster mode reads service DNS directly;
 local-dev mode (no KUBERNETES_SERVICE_HOST env var) hijacks DNS so
 Lakekeeper's catalog overrides resolve to the laptop's port-forwards.
-
-Required env vars (Deployment provides them; local dev exports manually):
-    LAKEKEEPER_URI                http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog
-    LAKEKEEPER_CLIENT_ID          lakekeeper-spark
-    LAKEKEEPER_CLIENT_SECRET      <secret>
-    LAKEKEEPER_OAUTH2_SERVER_URI  https://keycloak.cluster.cgood.dev/realms/Lakehouse/...
-    LAKEKEEPER_SCOPE              lakekeeper
-    LAKEKEEPER_WAREHOUSE          nhl
-    S3_ENDPOINT                   http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
-    S3_ACCESS_KEY                 <secret>
-    S3_SECRET_KEY                 <secret>
 """
 
+import math
 import os
 import socket
 
-# DNS hijack for local development only — in-cluster, the service DNS
-# already resolves correctly. Must run before requests/urllib3 are imported.
 _IN_CLUSTER = bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
 if not _IN_CLUSTER:
     _real_getaddrinfo = socket.getaddrinfo
@@ -44,12 +34,19 @@ import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
 from pyiceberg.catalog.rest import RestCatalog  # noqa: E402
 
-# NHL rink half-dimensions in feet (the official NHL coordinate system).
-RINK_X = 100.0   # length / 2
-RINK_Y = 42.5    # width / 2
+# NHL rink dimensions in feet, official coord system: x in [-100, 100],
+# y in [-42.5, 42.5]. Corner radius is 28ft.
+RINK_X = 100.0
+RINK_Y = 42.5
+CORNER_R = 28.0
 GOAL_LINE_X = 89.0
 BLUE_LINE_X = 25.0
-CORNER_RADIUS = 28.0
+
+# Plotly defaults consistent with the dark theme.
+ICE_BG = "#0e1d2b"
+LINE_RED = "#d62728"
+LINE_BLUE = "#1f77b4"
+MARKER_COLOR = "#ffce00"
 
 
 @st.cache_resource
@@ -74,9 +71,6 @@ def _catalog() -> RestCatalog:
 
 @st.cache_data(ttl=300)
 def _shots_arrow():
-    """Load gold.player_shots as an Arrow table. Arrow tables are
-    serializable so st.cache_data can persist them across reruns; the
-    DuckDB connection that wraps them is created per-rerun below."""
     catalog = _catalog()
     try:
         return catalog.load_table("gold.player_shots").scan().to_arrow()
@@ -89,28 +83,95 @@ def _shots_arrow():
 
 
 def _shots_connection():
-    """Fresh DuckDB connection with the cached Arrow table registered.
-    Cheap (in-memory zero-copy register); a new connection per script
-    rerun is fine because the heavy lift (the catalog scan) is cached."""
     con = duckdb.connect()
     con.register("shots", _shots_arrow())
     return con
 
 
+def _rink_boundary_points(n_per_corner: int = 24):
+    """Polygon approximation of the NHL rink boundary with rounded corners."""
+    pts = []
+    corners = [
+        (RINK_X - CORNER_R, -(RINK_Y - CORNER_R), -math.pi / 2),  # bottom-right
+        (RINK_X - CORNER_R,   RINK_Y - CORNER_R,   0.0),           # top-right
+        (-(RINK_X - CORNER_R), RINK_Y - CORNER_R,  math.pi / 2),   # top-left
+        (-(RINK_X - CORNER_R), -(RINK_Y - CORNER_R), math.pi),     # bottom-left
+    ]
+    for cx, cy, start_angle in corners:
+        for i in range(n_per_corner + 1):
+            theta = start_angle + (math.pi / 2) * (i / n_per_corner)
+            pts.append((cx + CORNER_R * math.cos(theta), cy + CORNER_R * math.sin(theta)))
+    pts.append(pts[0])
+    return pts
+
+
+def _rink_shapes() -> list:
+    """Static interior rink markings (lines, dots, circles, creases)."""
+    shapes = []
+
+    # Center red line
+    shapes.append(dict(type="line", x0=0, x1=0, y0=-RINK_Y, y1=RINK_Y,
+                       line=dict(color=LINE_RED, width=2)))
+    # Blue lines
+    for x in (-BLUE_LINE_X, BLUE_LINE_X):
+        shapes.append(dict(type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y,
+                           line=dict(color=LINE_BLUE, width=2)))
+    # Goal lines (thinner red, just inside the boards)
+    for x in (-GOAL_LINE_X, GOAL_LINE_X):
+        shapes.append(dict(type="line", x0=x, x1=x, y0=-RINK_Y + 4, y1=RINK_Y - 4,
+                           line=dict(color=LINE_RED, width=1)))
+    # Center faceoff circle + dot
+    shapes.append(dict(type="circle", x0=-15, x1=15, y0=-15, y1=15,
+                       line=dict(color=LINE_BLUE, width=1.5)))
+    shapes.append(dict(type="circle", x0=-0.7, x1=0.7, y0=-0.7, y1=0.7,
+                       line=dict(color=LINE_BLUE), fillcolor=LINE_BLUE))
+    # End faceoff circles + dots
+    for end_sign in (-1, 1):
+        for y in (-22, 22):
+            cx = end_sign * 69
+            cy = y
+            shapes.append(dict(type="circle", x0=cx - 15, x1=cx + 15,
+                               y0=cy - 15, y1=cy + 15,
+                               line=dict(color=LINE_RED, width=1.5)))
+            shapes.append(dict(type="circle", x0=cx - 1, x1=cx + 1,
+                               y0=cy - 1, y1=cy + 1,
+                               line=dict(color=LINE_RED), fillcolor=LINE_RED))
+        # Goal crease (rough approximation as half-rect)
+        gx = end_sign * GOAL_LINE_X
+        shapes.append(dict(type="rect", x0=gx - end_sign * 4.5, x1=gx, y0=-4, y1=4,
+                           line=dict(color=LINE_RED, width=1),
+                           fillcolor="rgba(31, 119, 180, 0.18)"))
+    # Neutral-zone faceoff dots
+    for x in (-20, 20):
+        for y in (-22, 22):
+            shapes.append(dict(type="circle", x0=x - 1, x1=x + 1,
+                               y0=y - 1, y1=y + 1,
+                               line=dict(color=LINE_RED), fillcolor=LINE_RED))
+    return shapes
+
+
 def _rink_figure() -> go.Figure:
-    """Plotly figure showing an NHL rink (top-down), no shot data yet."""
+    pts = _rink_boundary_points()
+    boundary_x = [p[0] for p in pts]
+    boundary_y = [p[1] for p in pts]
+
     fig = go.Figure()
+    # Boards — drawn as a closed polygon trace so we can render the 28ft rounded
+    # corners that real NHL rinks have. Plotly shapes don't have a rounded-rect
+    # primitive, so we approximate by sampling along each corner arc.
+    fig.add_trace(go.Scatter(
+        x=boundary_x, y=boundary_y, mode="lines",
+        line=dict(color="white", width=2.5),
+        fill="toself", fillcolor=ICE_BG,
+        hoverinfo="skip", showlegend=False,
+    ))
     fig.update_layout(
-        xaxis=dict(range=[-RINK_X - 2, RINK_X + 2], showgrid=False, zeroline=False, visible=False),
-        yaxis=dict(
-            range=[-RINK_Y - 2, RINK_Y + 2],
-            scaleanchor="x",
-            scaleratio=1,
-            showgrid=False,
-            zeroline=False,
-            visible=False,
-        ),
-        plot_bgcolor="#f3f8ff",
+        xaxis=dict(range=[-RINK_X - 4, RINK_X + 4], showgrid=False,
+                   zeroline=False, visible=False),
+        yaxis=dict(range=[-RINK_Y - 4, RINK_Y + 4], scaleanchor="x",
+                   scaleratio=1, showgrid=False, zeroline=False, visible=False),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
         height=520,
         shapes=_rink_shapes(),
@@ -119,77 +180,43 @@ def _rink_figure() -> go.Figure:
     return fig
 
 
-def _rink_shapes() -> list:
-    """Static Plotly shapes drawing the rink markings."""
-    shapes = []
-    # Boards — rounded rect approximated as a single rect for simplicity.
-    shapes.append(
-        dict(type="rect", x0=-RINK_X, x1=RINK_X, y0=-RINK_Y, y1=RINK_Y,
-             line=dict(color="black", width=2), fillcolor="rgba(0,0,0,0)")
+def _pie(values: list, labels: list, title: str) -> go.Figure:
+    fig = go.Figure(go.Pie(
+        values=values, labels=labels,
+        hole=0.45,
+        textposition="inside",
+        textinfo="label+percent",
+        marker=dict(line=dict(color="#0e1217", width=2)),
+        sort=True,
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),
+        showlegend=False,
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=300,
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e8eef2"),
     )
-    # Center red line
-    shapes.append(
-        dict(type="line", x0=0, x1=0, y0=-RINK_Y, y1=RINK_Y,
-             line=dict(color="red", width=2))
-    )
-    # Blue lines
-    for x in (-BLUE_LINE_X, BLUE_LINE_X):
-        shapes.append(
-            dict(type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y,
-                 line=dict(color="blue", width=2))
-        )
-    # Goal lines
-    for x in (-GOAL_LINE_X, GOAL_LINE_X):
-        shapes.append(
-            dict(type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y,
-                 line=dict(color="red", width=1))
-        )
-    # Center faceoff circle (15ft radius)
-    shapes.append(
-        dict(type="circle", x0=-15, x1=15, y0=-15, y1=15,
-             line=dict(color="blue", width=1.5))
-    )
-    # Center faceoff dot
-    shapes.append(
-        dict(type="circle", x0=-0.5, x1=0.5, y0=-0.5, y1=0.5,
-             line=dict(color="blue"), fillcolor="blue")
-    )
-    # End faceoff dots + circles (15ft radius), and goal creases.
-    for end_sign in (-1, 1):
-        for y in (-22, 22):
-            cx = end_sign * 69
-            cy = y
-            shapes.append(
-                dict(type="circle", x0=cx - 15, x1=cx + 15, y0=cy - 15, y1=cy + 15,
-                     line=dict(color="red", width=1.5))
-            )
-            shapes.append(
-                dict(type="circle", x0=cx - 1, x1=cx + 1, y0=cy - 1, y1=cy + 1,
-                     line=dict(color="red"), fillcolor="red")
-            )
-        # Goal crease - semicircle on the ice-side of the goal line.
-        # Simple half-rectangle approximation (6ft by 4.5ft).
-        gx = end_sign * GOAL_LINE_X
-        shapes.append(
-            dict(type="rect", x0=gx - end_sign * 4.5, x1=gx, y0=-4, y1=4,
-                 line=dict(color="red", width=1), fillcolor="rgba(0,150,255,0.15)")
-        )
-    # Neutral-zone faceoff dots
-    for x in (-20, 20):
-        for y in (-22, 22):
-            shapes.append(
-                dict(type="circle", x0=x - 0.5, x1=x + 0.5, y0=y - 0.5, y1=y + 0.5,
-                     line=dict(color="red"), fillcolor="red")
-            )
-    return shapes
+    return fig
+
+
+def _fmt_season(season: int) -> str:
+    s = str(season)
+    return f"{s[:4]}-{s[4:]}"
 
 
 def main():
     st.set_page_config(page_title="NHL Goal Map", layout="wide", page_icon="🏒")
-    st.title("NHL Goal Map")
-    st.caption(
+
+    # Header
+    st.markdown(
+        "<h1 style='margin-bottom:0'>NHL Goal Map</h1>"
+        "<p style='color:#9aa5b1; margin-top:4px;'>"
         "Every goal scored by the selected player this season, plotted at the "
-        "rink coordinates where the shot was taken from."
+        "rink coordinates the shot was taken from. Data flows bronze (NHL API) → "
+        "silver (typed Iceberg facts) → gold (denormalized for this view)."
+        "</p>",
+        unsafe_allow_html=True,
     )
 
     con = _shots_connection()
@@ -209,7 +236,10 @@ def main():
         "SELECT DISTINCT team_abbrev FROM shots WHERE season = ? ORDER BY team_abbrev",
         [season],
     ).fetchall()]
-    team = col_team.selectbox("Team", teams, index=teams.index("LAK") if "LAK" in teams else 0)
+    team = col_team.selectbox(
+        "Team", teams,
+        index=teams.index("LAK") if "LAK" in teams else 0,
+    )
 
     players_rows = con.execute(
         """SELECT player_id, player_name, COUNT(*) AS goals
@@ -220,61 +250,114 @@ def main():
     if not players_rows:
         st.warning(f"No goals for {team} in {_fmt_season(season)}.")
         return
-    player_label = col_player.selectbox(
-        "Player",
-        [f"{name} ({goals})" for _id, name, goals in players_rows],
-    )
-    player_id = players_rows[[f"{n} ({g})" for _i, n, g in players_rows].index(player_label)][0]
+    player_labels = [f"{name} ({goals})" for _id, name, goals in players_rows]
+    player_label = col_player.selectbox("Player (goal count)", player_labels)
+    player_id = players_rows[player_labels.index(player_label)][0]
+    player_name = players_rows[player_labels.index(player_label)][1]
 
     shots = con.execute(
-        """SELECT x_coord, y_coord, shot_type, period_number, time_in_period,
+        """SELECT x_coord, y_coord, shot_type, period_number, period_type,
+                  time_in_period, strength_state, is_empty_net,
                   game_date, home_score, away_score
            FROM shots WHERE season = ? AND team_abbrev = ? AND player_id = ?
            ORDER BY game_date, period_number, time_in_period""",
         [season, team, player_id],
     ).df()
 
-    left, right = st.columns([2, 1])
+    # Summary metric row
+    st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>",
+                unsafe_allow_html=True)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Player", player_name)
+    m2.metric("Team", team)
+    m3.metric("Season", _fmt_season(season))
+    m4.metric("Goals", len(shots))
 
+    # Rink + table
+    left, right = st.columns([2, 1])
     with left:
         fig = _rink_figure()
         fig.add_trace(go.Scatter(
             x=shots["x_coord"], y=shots["y_coord"],
             mode="markers",
             marker=dict(
-                size=14, color="#d62728", line=dict(color="black", width=1.2),
+                size=15, color=MARKER_COLOR,
+                line=dict(color="#0e1217", width=1.5),
                 symbol="circle",
             ),
             text=[
                 (
-                    f"{r.game_date} - P{r.period_number} {r.time_in_period} - "
-                    f"{r.shot_type or 'unknown'}"
+                    f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                    f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                    f"{' (empty net)' if r.is_empty_net else ''}"
                 )
                 for r in shots.itertuples()
             ],
             hovertemplate="%{text}<extra></extra>",
+            showlegend=False,
         ))
         st.plotly_chart(fig, use_container_width=True)
 
     with right:
-        st.metric("Goals", len(shots))
-        st.dataframe(
-            shots[["game_date", "period_number", "time_in_period", "shot_type"]].rename(
-                columns={
-                    "game_date": "Date",
-                    "period_number": "P",
-                    "time_in_period": "Time",
-                    "shot_type": "Shot",
-                }
-            ),
+        st.markdown("**Goals this season**")
+        table = shots[["game_date", "period_number", "time_in_period",
+                       "shot_type", "strength_state"]].rename(columns={
+            "game_date": "Date",
+            "period_number": "P",
+            "time_in_period": "Time",
+            "shot_type": "Shot",
+            "strength_state": "Strength",
+        })
+        st.dataframe(table, use_container_width=True, hide_index=True, height=470)
+
+    # Breakdowns
+    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
+                unsafe_allow_html=True)
+    st.markdown("### Breakdowns")
+    p1, p2, p3 = st.columns(3)
+
+    # Shot type
+    shot_counts = (shots["shot_type"].fillna("unknown")
+                   .value_counts().sort_values(ascending=False))
+    with p1:
+        st.plotly_chart(
+            _pie(shot_counts.values.tolist(), shot_counts.index.tolist(), "Shot type"),
             use_container_width=True,
-            hide_index=True,
         )
 
+    # Period (combine number + type so OT/SO show separately)
+    def _period_label(r):
+        if r.period_type and r.period_type != "REG":
+            return r.period_type
+        return f"P{r.period_number}"
+    period_series = shots.apply(_period_label, axis=1)
+    period_counts = period_series.value_counts()
+    # Stable ordering: P1, P2, P3, OT, SO, anything else after.
+    order = ["P1", "P2", "P3", "OT", "SO"]
+    period_counts = period_counts.reindex(
+        [p for p in order if p in period_counts.index]
+        + [p for p in period_counts.index if p not in order]
+    )
+    with p2:
+        st.plotly_chart(
+            _pie(period_counts.values.tolist(), period_counts.index.tolist(), "Period"),
+            use_container_width=True,
+        )
 
-def _fmt_season(season: int) -> str:
-    s = str(season)
-    return f"{s[:4]}-{s[4:]}"
+    # Strength state — break out empty-net goals as their own slice
+    def _strength_label(r):
+        if r.is_empty_net:
+            return "EN"
+        return r.strength_state or "unknown"
+    strength_series = shots.apply(_strength_label, axis=1)
+    strength_counts = strength_series.value_counts()
+    with p3:
+        st.plotly_chart(
+            _pie(strength_counts.values.tolist(),
+                 strength_counts.index.tolist(),
+                 "Strength state"),
+            use_container_width=True,
+        )
 
 
 if __name__ == "__main__":
