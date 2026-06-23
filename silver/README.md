@@ -61,6 +61,7 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 | `silver-games.yaml` | `games.py` | `nhl.silver.games` | bronze PBP envelopes |
 | `silver-plays.yaml` | `plays.py` | `nhl.silver.plays` (partitioned by `season`) | bronze PBP envelopes (plays array) |
 | `silver-players.yaml` | `players.py` | `nhl.silver.players` (SCD-1 dim) | bronze PBP envelopes (rosterSpots array, deduped) |
+| `silver-game-rosters.yaml` | `game_rosters.py` | `nhl.silver.game_rosters` (bridge, partitioned by `season`) | bronze PBP envelopes (rosterSpots array, per-game grain) |
 
 Jobs share `silver/common.py` (just a `get_spark(app_name)` helper today). The Dockerfile copies it next to the jobs so `from common import ...` works in-cluster.
 
