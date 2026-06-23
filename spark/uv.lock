@@ -21,7 +21,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nhl-lakehouse-silver"
+name = "nhl-lakehouse-spark"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

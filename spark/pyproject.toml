@@ -1,7 +1,7 @@
 [project]
-name = "nhl-lakehouse-silver"
+name = "nhl-lakehouse-spark"
 version = "0.1.0"
-description = "PySpark transformations from bronze JSON to Iceberg silver tables."
+description = "PySpark transformations producing silver and gold Iceberg tables."
 requires-python = ">=3.12"
 dependencies = ["pyspark==3.5.7"]
 
@@ -26,9 +26,11 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-# silver/ is not a packaged module — modules are copied directly to /opt/jobs/
-# in the container. Declare local module names explicitly so isort groups them
-# as first-party rather than alphabetizing them in with pyspark.
+# jobs/ subdirs are copied into the image with PYTHONPATH=/opt/jobs, so
+# jobs do `from common import ...` (common.py at jobs root) and tests
+# do `from games import ...` (silver/* on sys.path via conftest). Declare
+# the module names explicitly so isort groups them as first-party rather
+# than alphabetizing them in with pyspark.
 known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams"]
 
 [tool.pytest.ini_options]

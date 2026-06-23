@@ -17,16 +17,21 @@ RUN set -eux; \
     curl -fsSL -o /opt/spark/jars/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar \
       https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar
 
+# Jobs layout in the image mirrors the repo:
+#   /opt/jobs/common.py
+#   /opt/jobs/silver/<table>.py
+#   /opt/jobs/gold/<table>.py    (future)
+# PYTHONPATH lets jobs in any tier subdir do `from common import get_spark`
+# without needing relative-import package boilerplate.
 COPY jobs/ /opt/jobs/
-COPY common.py /opt/jobs/common.py
+ENV PYTHONPATH=/opt/jobs
 
 # Wrapper entrypoint that materializes credential-bearing Spark configs from
 # env vars before exec'ing Spark's real entrypoint. Required because Spark's
-# ${env:VAR} substitution doesn't apply to operator-passed --conf args
-# (verified directly: SparkConf retained the literal template string).
-COPY entrypoint.sh /opt/silver-entrypoint.sh
-RUN chmod +x /opt/silver-entrypoint.sh
+# ${env:VAR} substitution doesn't apply to operator-passed --conf args.
+COPY entrypoint.sh /opt/spark-entrypoint.sh
+RUN chmod +x /opt/spark-entrypoint.sh
 
 USER spark
 
-ENTRYPOINT ["/opt/silver-entrypoint.sh"]
+ENTRYPOINT ["/opt/spark-entrypoint.sh"]

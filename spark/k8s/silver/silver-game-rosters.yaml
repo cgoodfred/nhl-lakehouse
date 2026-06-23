@@ -1,19 +1,15 @@
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: silver-games
+  name: silver-game-rosters
   namespace: lakehouse
 spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
-  image: ghcr.io/cgoodfred/nhl-lakehouse/silver:latest
-  # Always pull because :latest moves between builds and Spark Operator's
-  # default (IfNotPresent) would reuse a stale cached image on the node.
-  # If you pin spec.image to an immutable SHA tag, you can flip this to
-  # IfNotPresent for faster repeated runs.
+  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
   imagePullPolicy: Always
-  mainApplicationFile: local:///opt/jobs/games.py
+  mainApplicationFile: local:///opt/jobs/silver/game_rosters.py
   sparkVersion: "3.5.7"
   restartPolicy:
     type: Never
@@ -51,7 +47,7 @@ spec:
     cores: 1
     coreLimit: "1"
     instances: 2
-    memory: "2g"
+    memory: "1g"
     env:
       - name: AWS_ACCESS_KEY_ID
         valueFrom:
@@ -77,14 +73,13 @@ spec:
             key: client-secret
 
   sparkConf:
-    # Iceberg extensions + REST catalog (native OAuth2 client_credentials).
     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
     "spark.sql.catalog.nhl": "org.apache.iceberg.spark.SparkCatalog"
     "spark.sql.catalog.nhl.type": "rest"
     "spark.sql.catalog.nhl.uri": "http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog"
     "spark.sql.catalog.nhl.warehouse": "nhl"
     # spark.sql.catalog.nhl.credential is injected into spark.properties (the
-    # file spark-submit reads via --properties-file) by silver/entrypoint.sh
+    # file spark-submit reads via --properties-file) by spark/entrypoint.sh
     # from env vars. Spark's ${env:VAR} substitution does not apply when
     # Iceberg's SparkCatalog reads its options via SparkConf.getAllWithPrefix.
     "spark.sql.catalog.nhl.scope": "lakekeeper"
@@ -101,17 +96,14 @@ spec:
     # LoggingMetricsReporter writes the same metrics to driver stdout instead.
     "spark.sql.catalog.nhl.rest.metrics-reporter-impl": "org.apache.iceberg.metrics.LoggingMetricsReporter"
 
-    # s3a (bronze reads). SeaweedFS-compat options mirror the Go ingest's
-    # RequestChecksumCalculationWhenRequired workaround.
     "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
     "spark.hadoop.fs.s3a.path.style.access": "true"
     "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
     # access.key and secret.key are injected into spark.properties by
-    # silver/entrypoint.sh from env vars (same reason as catalog credential above).
+    # spark/entrypoint.sh from env vars (same reason as catalog credential above).
     "spark.hadoop.fs.s3a.change.detection.version.required": "false"
     "spark.hadoop.fs.s3a.change.detection.mode": "warn"
 
-    # Misc.
-    "spark.sql.shuffle.partitions": "1"
+    "spark.sql.shuffle.partitions": "16"
     "spark.sql.session.timeZone": "UTC"
     "spark.kubernetes.memoryOverheadFactor": "0.4"
