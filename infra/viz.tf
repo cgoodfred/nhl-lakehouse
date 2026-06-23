@@ -149,33 +149,28 @@ resource "kubernetes_service" "viz" {
   }
 }
 
-resource "kubernetes_ingress_v1" "viz" {
-  metadata {
-    name      = "viz"
-    namespace = kubernetes_namespace.lakehouse.metadata[0].name
-    annotations = {
-      # Traefik routes plain HTTP; Cloudflare Tunnel terminates TLS at the edge.
-      "traefik.ingress.kubernetes.io/router.entrypoints" = "web"
+resource "kubernetes_manifest" "viz_ingressroute" {
+  # Cluster uses Traefik IngressRoute CRDs (not standard K8s Ingress) — matches
+  # the pattern of every other web app already routed through the same tunnel
+  # (sports-sandwiches, keycloak, grafana, headlamp). HTTP only; Cloudflare
+  # Tunnel terminates TLS at the edge.
+  manifest = {
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "IngressRoute"
+    metadata = {
+      name      = "viz"
+      namespace = kubernetes_namespace.lakehouse.metadata[0].name
     }
-  }
-  spec {
-    ingress_class_name = "traefik"
-    rule {
-      host = "nhl.cluster.cgood.dev"
-      http {
-        path {
-          path      = "/"
-          path_type = "Prefix"
-          backend {
-            service {
-              name = kubernetes_service.viz.metadata[0].name
-              port {
-                number = 8501
-              }
-            }
-          }
-        }
-      }
+    spec = {
+      entryPoints = ["web"]
+      routes = [{
+        match = "Host(`nhl.cluster.cgood.dev`)"
+        kind  = "Rule"
+        services = [{
+          name = kubernetes_service.viz.metadata[0].name
+          port = 8501
+        }]
+      }]
     }
   }
 }
