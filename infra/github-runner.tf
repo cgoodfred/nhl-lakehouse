@@ -88,6 +88,71 @@ resource "kubernetes_cluster_role_binding" "github_runner_helm_cluster_scope" {
   }
 }
 
+# Read-only CRD discovery so the kubernetes_manifest provider can look up the
+# GVK for arbitrary CRD-backed resources at plan time (Traefik IngressRoute,
+# Spark Operator CRDs, etc.). Without this, every workflow run that touches a
+# kubernetes_manifest fails at refresh with:
+#   "customresourcedefinitions is forbidden ... cannot list ... at the cluster scope"
+resource "kubernetes_cluster_role" "github_runner_crd_reader" {
+  metadata {
+    name = "github-runner-crd-reader"
+  }
+  rule {
+    api_groups = ["apiextensions.k8s.io"]
+    resources  = ["customresourcedefinitions"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "github_runner_crd_reader" {
+  metadata {
+    name = "github-runner-crd-reader"
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.github_runner_crd_reader.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
+# patch/update on resourcequotas and limitranges in the lakehouse namespace.
+# Kubernetes' built-in `admin` ClusterRole intentionally excludes these to
+# stop a namespace admin from raising their own caps; the runner needs them
+# to apply the namespace.tf and limit-range changes we make periodically.
+resource "kubernetes_role" "github_runner_lakehouse_quota_patch" {
+  metadata {
+    name      = "github-runner-quota-patch"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["resourcequotas", "limitranges"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "github_runner_lakehouse_quota_patch" {
+  metadata {
+    name      = "github-runner-quota-patch"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.github_runner_lakehouse_quota_patch.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
 resource "kubernetes_deployment" "github_runner" {
   metadata {
     name      = "github-runner"
