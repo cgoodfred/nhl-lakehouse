@@ -94,6 +94,12 @@ spec:
     "spark.sql.catalog.nhl.s3.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
     "spark.sql.catalog.nhl.s3.path-style-access": "true"
     "spark.sql.catalog.nhl.s3.region": "us-east-1"
+    # Iceberg's default RESTMetricsReporter POSTs post-commit metrics back to
+    # the catalog with a token that isn't reliably refreshed in our OAuth2
+    # flow, causing a NotAuthorizedException to propagate into Python after
+    # the snapshot commits — write succeeds but the job is marked FAILED.
+    # LoggingMetricsReporter writes the same metrics to driver stdout instead.
+    "spark.sql.catalog.nhl.rest.metrics-reporter-impl": "org.apache.iceberg.metrics.LoggingMetricsReporter"
 
     # s3a (bronze reads). SeaweedFS-compat options mirror the Go ingest's
     # RequestChecksumCalculationWhenRequired workaround.
