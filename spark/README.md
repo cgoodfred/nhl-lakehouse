@@ -83,6 +83,14 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 
 `silver-teams.yaml` depends on `silver.games` existing — apply silver-games first.
 
+### Gold
+
+| Job manifest | PySpark | Target table | Source |
+|---|---|---|---|
+| `gold/gold-player-shots.yaml` | `gold/player_shots.py` | `nhl.gold.player_shots` (partitioned by `season`) | `silver.plays` ⨝ `silver.games` ⨝ `silver.players` ⨝ `silver.teams` filtered to goals with valid coords |
+
+All gold jobs depend on the silver layer being populated.
+
 ## Tests
 
 Transformation logic lives in pure functions (e.g. `transform_plays` in `silver/plays.py`) so it can be exercised against fixtures with a local SparkSession. Tests live under `spark/tests/`.
