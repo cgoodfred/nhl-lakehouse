@@ -46,7 +46,7 @@ spec:
   executor:
     cores: 2
     coreLimit: "2"
-    instances: 2
+    instances: 1
     memory: "2g"
     env:
       - name: AWS_ACCESS_KEY_ID
