@@ -47,7 +47,7 @@ KEYCLOAK_TOKEN_URI = (
     "https://keycloak.cluster.cgood.dev/realms/Lakehouse/protocol/openid-connect/token"
 )
 
-TABLES = ["games", "plays", "players", "game_rosters"]
+TABLES = ["games", "plays", "players", "game_rosters", "teams"]
 
 
 def _kube_secret(namespace: str, name: str, key: str) -> str:
@@ -175,6 +175,20 @@ def main() -> None:
         )
     """, con)
 
+    _section("silver.teams")
+    _print_df("counts", """
+        SELECT COUNT(*) AS rows,
+               COUNT(DISTINCT team_id) AS distinct_team_ids,
+               SUM(CASE WHEN team_id IS NULL THEN 1 ELSE 0 END) AS null_team_id,
+               SUM(CASE WHEN abbrev  IS NULL THEN 1 ELSE 0 END) AS null_abbrev,
+               SUM(CASE WHEN name    IS NULL THEN 1 ELSE 0 END) AS null_name
+        FROM teams
+    """, con)
+    _print_df("date span sanity (first_seen > last_seen should be 0)", """
+        SELECT COUNT(*) AS teams_with_inverted_dates
+        FROM teams WHERE first_seen_date > last_seen_date
+    """, con)
+
     _section("cross-table referential integrity")
     _print_df("plays.game_id values missing from games (should be 0)", """
         SELECT COUNT(DISTINCT p.game_id) AS orphan_game_ids
@@ -193,6 +207,22 @@ def main() -> None:
         FROM game_rosters gr
         LEFT JOIN players p ON gr.player_id = p.player_id
         WHERE p.player_id IS NULL
+    """, con)
+    _print_df("game_rosters.team_id values missing from teams (should be 0)", """
+        SELECT COUNT(DISTINCT gr.team_id) AS orphan_team_ids
+        FROM game_rosters gr
+        LEFT JOIN teams t ON gr.team_id = t.team_id
+        WHERE t.team_id IS NULL
+    """, con)
+    _print_df("games team_id values missing from teams (should be 0)", """
+        SELECT COUNT(DISTINCT g.team_id) AS orphan_team_ids
+        FROM (
+            SELECT home_team_id AS team_id FROM games
+            UNION
+            SELECT away_team_id AS team_id FROM games
+        ) g
+        LEFT JOIN teams t ON g.team_id = t.team_id
+        WHERE t.team_id IS NULL
     """, con)
     _print_df("games covered by plays (every game should have plays)", """
         SELECT COUNT(*) AS games_with_no_plays
