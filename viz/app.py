@@ -31,6 +31,7 @@ if not _IN_CLUSTER:
 
 import duckdb  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
+import requests  # noqa: E402
 import streamlit as st  # noqa: E402
 from pyiceberg.catalog.rest import RestCatalog  # noqa: E402
 
@@ -47,6 +48,25 @@ ICE_BG = "#0e1d2b"
 LINE_RED = "#d62728"
 LINE_BLUE = "#1f77b4"
 MARKER_COLOR = "#ffce00"
+
+# NHL player+puck tracking from wsr.nhle.com uses inches with origin at one
+# corner of the rink. Rink is 200ft x 85ft = 2400in x 1020in, so the center
+# (which matches the PBP coord origin) sits at (1200, 510) inches.
+PPT_CENTER_X_IN = 1200
+PPT_CENTER_Y_IN = 510
+PPT_INCHES_PER_FT = 12
+
+# Browser-like headers — wsr.nhle.com is Cloudflare-protected and rejects
+# requests without a recognized Referer + User-Agent.
+PPT_HEADERS = {
+    "Referer": "https://www.nhl.com/",
+    "Origin": "https://www.nhl.com",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json,*/*",
+}
 
 
 @st.cache_resource
@@ -211,6 +231,76 @@ def _fmt_season(season: int) -> str:
     return f"{s[:4]}-{s[4:]}"
 
 
+def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
+    """Convert NHL tracking inches -> PBP feet (center-origin)."""
+    return (
+        (x_in - PPT_CENTER_X_IN) / PPT_INCHES_PER_FT,
+        (y_in - PPT_CENTER_Y_IN) / PPT_INCHES_PER_FT,
+    )
+
+
+@st.cache_data(ttl=3600, show_spinner="Fetching tracking frames...")
+def _fetch_tracking(url: str):
+    resp = requests.get(url, headers=PPT_HEADERS, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _tracking_figure(frames: list, frame_idx: int) -> go.Figure:
+    """Render the rink with every on-ice player + the puck at a given frame.
+    Players are colored by team; sweater numbers shown inside the markers."""
+    frame = frames[frame_idx]
+    fig = _rink_figure()
+
+    by_team: dict[str, list] = {}
+    puck = None
+    for key, entry in frame["onIce"].items():
+        x_ft, y_ft = _to_ft(entry["x"], entry["y"])
+        if str(key) == "1":  # puck
+            puck = (x_ft, y_ft)
+            continue
+        team = entry.get("teamAbbrev") or "?"
+        by_team.setdefault(team, []).append({
+            "x": x_ft, "y": y_ft,
+            "sweater": entry.get("sweaterNumber", ""),
+        })
+
+    palette = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd"]
+    for i, (team, players) in enumerate(sorted(by_team.items())):
+        color = palette[i % len(palette)]
+        fig.add_trace(go.Scatter(
+            x=[p["x"] for p in players],
+            y=[p["y"] for p in players],
+            mode="markers+text",
+            marker=dict(size=22, color=color,
+                        line=dict(color="white", width=1.5)),
+            text=[str(p["sweater"]) for p in players],
+            textposition="middle center",
+            textfont=dict(color="white", size=10),
+            name=team,
+            hovertemplate=f"{team} #%{{text}}<extra></extra>",
+            showlegend=True,
+        ))
+
+    if puck is not None:
+        fig.add_trace(go.Scatter(
+            x=[puck[0]], y=[puck[1]],
+            mode="markers",
+            marker=dict(size=12, color="black", symbol="circle",
+                        line=dict(color="white", width=1.5)),
+            name="puck",
+            hovertemplate="puck<extra></extra>",
+            showlegend=True,
+        ))
+
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    bgcolor="rgba(0,0,0,0)"),
+    )
+    return fig
+
+
 def main():
     st.set_page_config(page_title="NHL Goal Map", layout="wide", page_icon="🏒")
 
@@ -264,7 +354,7 @@ def main():
     shots = con.execute(
         """SELECT x_coord, y_coord, shot_type, period_number, period_type,
                   time_in_period, strength_state, is_empty_net,
-                  game_date, home_score, away_score
+                  game_date, home_score, away_score, ppt_replay_url
            FROM shots WHERE season = ? AND team_abbrev = ? AND player_id = ?
            ORDER BY game_date, period_number, time_in_period""",
         [season, team, player_id],
@@ -306,6 +396,7 @@ def main():
 
     with right:
         st.markdown("**Goals this season**")
+        st.caption("Click a row to open the tracking view below.")
         table = shots[["game_date", "period_number", "time_in_period",
                        "shot_type", "strength_state"]].rename(columns={
             "game_date": "Date",
@@ -314,7 +405,48 @@ def main():
             "shot_type": "Shot",
             "strength_state": "Strength",
         })
-        st.dataframe(table, use_container_width=True, hide_index=True, height=470)
+        table_event = st.dataframe(
+            table,
+            use_container_width=True,
+            hide_index=True,
+            height=470,
+            on_select="rerun",
+            selection_mode="single-row",
+        )
+
+    # Per-goal tracking panel — opens when a row in the table is selected.
+    if table_event.selection.rows:
+        idx = table_event.selection.rows[0]
+        sel = shots.iloc[idx]
+        st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
+                    unsafe_allow_html=True)
+        header = (
+            f"### Tracking — {sel.game_date}, "
+            f"P{sel.period_number} {sel.time_in_period} "
+            f"({sel.shot_type or 'unknown'}, {sel.strength_state})"
+        )
+        st.markdown(header)
+        if not sel.ppt_replay_url:
+            st.info("No tracking data attached to this goal.")
+        else:
+            try:
+                frames = _fetch_tracking(sel.ppt_replay_url)
+            except Exception as exc:
+                st.warning(
+                    f"Could not fetch tracking from {sel.ppt_replay_url}\n\n"
+                    f"`{exc.__class__.__name__}: {exc}`"
+                )
+            else:
+                n = len(frames)
+                frame_idx = st.slider(
+                    "Frame (slide to scrub; last frame = goal moment)",
+                    min_value=0, max_value=n - 1, value=n - 1,
+                    key=f"frame_{sel.name}",
+                )
+                st.plotly_chart(
+                    _tracking_figure(frames, frame_idx),
+                    use_container_width=True,
+                )
 
     # Breakdowns
     st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
