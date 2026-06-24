@@ -9,6 +9,7 @@ dependencies = [
     "pyiceberg[s3fs,pyarrow]>=0.8",
     "duckdb>=1.1",
     "pandas>=2.2",
+    "requests>=2.32",
 ]
 
 [dependency-groups]
