@@ -116,9 +116,15 @@ def _rink_shapes() -> list:
     for x in (-BLUE_LINE_X, BLUE_LINE_X):
         shapes.append(dict(type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y,
                            line=dict(color=LINE_BLUE, width=2)))
-    # Goal lines (thinner red, just inside the boards)
+    # Goal lines. Because |x|=89 falls inside the corner-arc zone (|x| > X-R),
+    # the rink boundary at that x is below RINK_Y. Compute the exact board
+    # intersection so the line ends at the boards rather than overshooting
+    # past them into space.
+    goal_line_y = (RINK_Y - CORNER_R) + math.sqrt(
+        CORNER_R**2 - (GOAL_LINE_X - (RINK_X - CORNER_R)) ** 2
+    )
     for x in (-GOAL_LINE_X, GOAL_LINE_X):
-        shapes.append(dict(type="line", x0=x, x1=x, y0=-RINK_Y + 4, y1=RINK_Y - 4,
+        shapes.append(dict(type="line", x0=x, x1=x, y0=-goal_line_y, y1=goal_line_y,
                            line=dict(color=LINE_RED, width=1)))
     # Center faceoff circle + dot
     shapes.append(dict(type="circle", x0=-15, x1=15, y0=-15, y1=15,
