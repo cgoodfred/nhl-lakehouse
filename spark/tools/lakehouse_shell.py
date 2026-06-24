@@ -98,24 +98,35 @@ def _build_catalog() -> RestCatalog:
     )
 
 
-def _refresh_snapshot() -> None:
+def _refresh_snapshot() -> list[str]:
+    """Materialize each Iceberg table into the DuckDB snapshot. Returns the
+    list of fully-qualified table names that were skipped due to load failure
+    (so the caller can warn before opening the shell)."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     catalog = _build_catalog()
     con = duckdb.connect(str(DB_PATH))
+    skipped: list[str] = []
     print(f"materializing tables into {DB_PATH}\n")
     for schema, name in TABLES:
-        print(f"  {schema}.{name:<14} ", end="", flush=True)
+        fq = f"{schema}.{name}"
+        print(f"  {fq:<22} ", end="", flush=True)
+        # Drop any existing copy first so a failed load leaves the table
+        # visibly absent in `.tables` rather than serving stale rows from
+        # a previous refresh.
+        con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+        con.execute(f"DROP TABLE IF EXISTS {schema}.{name}")
         try:
-            arrow = catalog.load_table(f"{schema}.{name}").scan().to_arrow()
+            arrow = catalog.load_table(fq).scan().to_arrow()
         except Exception as exc:
             print(f"SKIP ({exc.__class__.__name__}: {exc})")
+            skipped.append(fq)
             continue
-        con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         con.register("_tmp_arrow", arrow)
-        con.execute(f"CREATE OR REPLACE TABLE {schema}.{name} AS SELECT * FROM _tmp_arrow")
+        con.execute(f"CREATE TABLE {schema}.{name} AS SELECT * FROM _tmp_arrow")
         con.unregister("_tmp_arrow")
         print(f"{arrow.num_rows:>10,} rows")
     con.close()
+    return skipped
 
 
 def _exec_duckdb_cli() -> None:
@@ -135,7 +146,16 @@ def _exec_duckdb_cli() -> None:
 
 
 def main() -> None:
-    _refresh_snapshot()
+    skipped = _refresh_snapshot()
+    if skipped:
+        print(f"\n⚠ {len(skipped)} table(s) skipped due to load failure — "
+              "NOT present in the snapshot:")
+        for fq in skipped:
+            print(f"    {fq}")
+        print(
+            "    Fix the underlying load failure (port-forwards down? table "
+            "doesn't exist?) and re-run, or query the rest as-is."
+        )
     _exec_duckdb_cli()
 
 
