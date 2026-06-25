@@ -120,6 +120,55 @@ resource "kubernetes_cluster_role_binding" "github_runner_crd_reader" {
   }
 }
 
+# Full management of traefik.io CRD instances (IngressRoutes, middlewares,
+# etc.) in the lakehouse namespace. The runner's `admin` ClusterRole binding
+# covers built-in K8s resources but not arbitrary CRD instances — without
+# this, `tofu plan` refresh of kubernetes_manifest.viz_ingressroute fails
+# with "ingressroutes.traefik.io \"viz\" is forbidden" even after the
+# cluster-scoped CRD discovery perm is granted.
+#
+# Scoped to lakehouse namespace since that's where our Traefik resources
+# live. If we ever manage Traefik routes in other namespaces from this
+# repo, mirror this Role + binding there.
+resource "kubernetes_role" "github_runner_lakehouse_traefik" {
+  metadata {
+    name      = "github-runner-traefik"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  rule {
+    api_groups = ["traefik.io"]
+    resources = [
+      "ingressroutes",
+      "ingressroutetcps",
+      "ingressrouteudps",
+      "middlewares",
+      "middlewaretcps",
+      "serverstransports",
+      "tlsoptions",
+      "tlsstores",
+      "traefikservices",
+    ]
+    verbs = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "github_runner_lakehouse_traefik" {
+  metadata {
+    name      = "github-runner-traefik"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.github_runner_lakehouse_traefik.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
 # patch/update on resourcequotas and limitranges in the lakehouse namespace.
 # Kubernetes' built-in `admin` ClusterRole intentionally excludes these to
 # stop a namespace admin from raising their own caps; the runner needs them
