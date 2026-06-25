@@ -306,8 +306,14 @@ def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
     teams = teams_seen[:2]
     palette = {teams[0]: "#d62728", teams[1]: "#1f77b4"}
 
-    # Initial (first-frame) data for each dynamic trace
-    init_team, init_puck_x, init_puck_y = _frame_team_data(frames[0], teams, id_to_name)
+    # Initial rendered state = LAST frame (the goal moment). The Plotly
+    # slider's `active` is also set to len(frames)-1 below, and the panel
+    # caption says it defaults to the goal moment — initializing from
+    # frames[0] would leave the rendered chart at the start of the replay
+    # while the controls advertised the end. Pressing ▶ from the last
+    # frame loops back to 0 automatically since fromcurrent + the end is
+    # treated as a wrap by Plotly.
+    init_team, init_puck_x, init_puck_y = _frame_team_data(frames[-1], teams, id_to_name)
     for team in teams:
         d = init_team[team]
         fig.add_trace(go.Scatter(
