@@ -325,26 +325,46 @@ def main():
         st.warning("No data in gold.player_shots yet.")
         return
 
-    col_season, col_team, col_player = st.columns(3)
+    # Game-type filter maps the UI choice to a SQL predicate on shots.game_type.
+    # NHL gameType encoding: 1 preseason, 2 regular season, 3 playoffs.
+    GAME_TYPE_OPTIONS = {
+        "Regular season": "game_type = 2",
+        "Preseason":      "game_type = 1",
+        "Playoffs":       "game_type = 3",
+        "All NHL":        "game_type IN (1, 2, 3)",
+    }
+
+    col_season, col_type, col_team, col_player = st.columns(4)
     season = col_season.selectbox("Season", seasons, format_func=_fmt_season)
+    game_type_label = col_type.selectbox(
+        "Game type", list(GAME_TYPE_OPTIONS.keys()), index=0,
+    )
+    type_pred = GAME_TYPE_OPTIONS[game_type_label]
 
     teams = [r[0] for r in con.execute(
-        "SELECT DISTINCT team_abbrev FROM shots WHERE season = ? ORDER BY team_abbrev",
+        f"SELECT DISTINCT team_abbrev FROM shots "
+        f"WHERE season = ? AND {type_pred} ORDER BY team_abbrev",
         [season],
     ).fetchall()]
+    if not teams:
+        st.warning(f"No goals for {_fmt_season(season)} {game_type_label}.")
+        return
     team = col_team.selectbox(
         "Team", teams,
         index=teams.index("LAK") if "LAK" in teams else 0,
     )
 
     players_rows = con.execute(
-        """SELECT player_id, player_name, COUNT(*) AS goals
-           FROM shots WHERE season = ? AND team_abbrev = ?
-           GROUP BY player_id, player_name ORDER BY goals DESC, player_name""",
+        f"""SELECT player_id, player_name, COUNT(*) AS goals
+            FROM shots
+            WHERE season = ? AND team_abbrev = ? AND {type_pred}
+            GROUP BY player_id, player_name ORDER BY goals DESC, player_name""",
         [season, team],
     ).fetchall()
     if not players_rows:
-        st.warning(f"No goals for {team} in {_fmt_season(season)}.")
+        st.warning(
+            f"No goals for {team} in {_fmt_season(season)} {game_type_label}."
+        )
         return
     player_labels = [f"{name} ({goals})" for _id, name, goals in players_rows]
     player_label = col_player.selectbox("Player (goal count)", player_labels)
@@ -352,11 +372,12 @@ def main():
     player_name = players_rows[player_labels.index(player_label)][1]
 
     shots = con.execute(
-        """SELECT x_coord, y_coord, shot_type, period_number, period_type,
-                  time_in_period, strength_state, is_empty_net,
-                  game_date, home_score, away_score, ppt_replay_url
-           FROM shots WHERE season = ? AND team_abbrev = ? AND player_id = ?
-           ORDER BY game_date, period_number, time_in_period""",
+        f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
+                   time_in_period, strength_state, is_empty_net,
+                   game_date, home_score, away_score, ppt_replay_url
+            FROM shots
+            WHERE season = ? AND team_abbrev = ? AND player_id = ? AND {type_pred}
+            ORDER BY game_date, period_number, time_in_period""",
         [season, team, player_id],
     ).df()
 

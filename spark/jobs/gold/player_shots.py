@@ -11,6 +11,9 @@ ice they were taken from" without three joins on every query.
 Filtered to:
   - type_desc_key = 'goal'
   - non-null scoring_player_id, x_coord, y_coord
+  - silver.games.game_type IN (1, 2, 3) — preseason, regular, playoffs.
+    Excludes one-off NHL events like the All-Star Game (4) and 4 Nations
+    Face-Off (19) where players are on national teams, not their NHL clubs.
 """
 
 from pyspark.sql import DataFrame
@@ -38,10 +41,12 @@ def transform_player_shots(
         & col("y_coord").isNotNull()
     )
 
+    nhl_games = games_df.where(col("game_type").isin(1, 2, 3))
+
     return (
         goals.alias("p")
         .join(
-            games_df.select("game_id", "game_date").alias("g"),
+            nhl_games.select("game_id", "game_date", "game_type").alias("g"),
             col("p.game_id") == col("g.game_id"),
             "inner",
         )
@@ -65,6 +70,7 @@ def transform_player_shots(
             col("p.event_id").alias("event_id"),
             col("p.game_id").alias("game_id"),
             col("g.game_date").alias("game_date"),
+            col("g.game_type").alias("game_type"),
             col("p.season").alias("season"),
             col("pl.player_id").alias("player_id"),
             col("pl.player_name").alias("player_name"),
