@@ -3,10 +3,10 @@
 Source:  s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json (rosterSpots[] array)
 Target:  nhl.silver.players (Iceberg, one row per unique playerId)
 
-SCD-1 semantics: latest known first/last name and position per player.
-`max_by(..., game_date)` gives deterministic latest-value semantics —
-plain `last(...)` after groupBy is non-deterministic in Spark and would
-silently produce different results run-to-run.
+SCD-1 semantics: latest known first/last name, position, and headshot
+URL per player. `max_by(..., game_date)` gives deterministic latest-value
+semantics — plain `last(...)` after groupBy is non-deterministic in Spark
+and would silently produce different results run-to-run.
 
 The PBP envelope has both plays[] and rosterSpots[]. We declare only the
 rosterSpots fields we need; plays[] is skipped by the JSON parser.
@@ -44,6 +44,11 @@ _ROSTER_SPOT_STRUCT = StructType([
     StructField("firstName", _NAME_STRUCT),
     StructField("lastName", _NAME_STRUCT),
     StructField("positionCode", StringType()),
+    # NHL CDN headshot URL — embeds the player's CURRENT team and the season,
+    # so it changes when a player is traded. max_by(.., (game_date, game_id))
+    # below picks the most recent value, matching how we resolve first/last
+    # name and position.
+    StructField("headshot", StringType()),
 ])
 
 PLAYERS_SCHEMA = StructType([
@@ -75,6 +80,7 @@ def transform_players(raw_df: DataFrame) -> DataFrame:
         max_by(col("r.firstName.default"), sort_key).alias("first_name"),
         max_by(col("r.lastName.default"), sort_key).alias("last_name"),
         max_by(col("r.positionCode"), sort_key).alias("position_code"),
+        max_by(col("r.headshot"), sort_key).alias("headshot"),
         min("game_date").alias("first_seen_date"),
         max("game_date").alias("last_seen_date"),
     )

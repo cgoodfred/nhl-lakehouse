@@ -8,7 +8,8 @@
       "lastName": {"default": "Kopitar"},
       "positionCode": "C",
       "teamId": 26,
-      "sweaterNumber": 11
+      "sweaterNumber": 11,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685_v3.png"
     }
   ],
   "plays": []

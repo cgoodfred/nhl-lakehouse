@@ -8,7 +8,8 @@
       "lastName": {"default": "Iafallo"},
       "positionCode": "L",
       "teamId": 52,
-      "sweaterNumber": 19
+      "sweaterNumber": 19,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20242025/WPG/8480113.png"
     },
     {
       "playerId": 8475311,
@@ -16,7 +17,8 @@
       "lastName": {"default": "Kuemper"},
       "positionCode": "G",
       "teamId": 26,
-      "sweaterNumber": 35
+      "sweaterNumber": 35,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20242025/LAK/8475311.png"
     },
     {
       "playerId": 8482124,
@@ -24,7 +26,8 @@
       "lastName": {"default": "Clarke"},
       "positionCode": "D",
       "teamId": 26,
-      "sweaterNumber": 8
+      "sweaterNumber": 8,
+      "headshot": "https://assets.nhle.com/mugs/nhl/20242025/LAK/8482124.png"
     }
   ],
   "plays": [
