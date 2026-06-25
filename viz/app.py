@@ -108,6 +108,23 @@ def _shots_connection():
     return con
 
 
+@st.cache_data(ttl=3600)
+def _player_id_to_name() -> dict[int, str]:
+    """Map playerId -> 'First Last' for legend rendering on the tracking view."""
+    catalog = _catalog()
+    try:
+        arrow = catalog.load_table("silver.players").scan().to_arrow()
+    except Exception:
+        return {}
+    df = arrow.to_pandas()
+    return {
+        int(pid): f"{first} {last}".strip()
+        for pid, first, last in zip(
+            df.player_id, df.first_name, df.last_name, strict=False,
+        )
+    }
+
+
 def _rink_boundary_points(n_per_corner: int = 24):
     """Polygon approximation of the NHL rink boundary with rounded corners."""
     pts = []
@@ -246,59 +263,171 @@ def _fetch_tracking(url: str):
     return resp.json()
 
 
-def _tracking_figure(frames: list, frame_idx: int) -> go.Figure:
-    """Render the rink with every on-ice player + the puck at a given frame.
-    Players are colored by team; sweater numbers shown inside the markers."""
-    frame = frames[frame_idx]
-    fig = _rink_figure()
-
-    by_team: dict[str, list] = {}
-    puck = None
+def _frame_team_data(frame: dict, teams: list[str], id_to_name: dict):
+    """Bin a single frame's onIce entries into per-team trace data + the puck."""
+    by_team = {t: {"x": [], "y": [], "text": [], "hover": []} for t in teams}
+    puck_x: list[float] = []
+    puck_y: list[float] = []
     for key, entry in frame["onIce"].items():
         x_ft, y_ft = _to_ft(entry["x"], entry["y"])
-        if str(key) == "1":  # puck
-            puck = (x_ft, y_ft)
+        if str(key) == "1":
+            puck_x.append(x_ft)
+            puck_y.append(y_ft)
             continue
         team = entry.get("teamAbbrev") or "?"
-        by_team.setdefault(team, []).append({
-            "x": x_ft, "y": y_ft,
-            "sweater": entry.get("sweaterNumber", ""),
-        })
+        if team not in by_team:
+            continue
+        sweater = str(entry.get("sweaterNumber", ""))
+        name = id_to_name.get(int(entry.get("playerId") or 0), "")
+        by_team[team]["x"].append(x_ft)
+        by_team[team]["y"].append(y_ft)
+        by_team[team]["text"].append(sweater)
+        by_team[team]["hover"].append(
+            f"{name} (#{sweater}, {team})" if name else f"#{sweater} ({team})"
+        )
+    return by_team, puck_x, puck_y
 
-    palette = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd"]
-    for i, (team, players) in enumerate(sorted(by_team.items())):
-        color = palette[i % len(palette)]
+
+def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
+    """Animated rink view of the whole goal sequence.
+
+    Plotly's native frames + updatemenus drive play/pause + the slider.
+    The rink itself is one static trace (added by _rink_figure); the three
+    dynamic traces (home team, away team, puck) are updated per frame via
+    indexed targeting so the rink never re-renders."""
+    fig = _rink_figure()
+
+    teams_seen = sorted({
+        e.get("teamAbbrev") for f in frames
+        for k, e in f["onIce"].items() if str(k) != "1"
+    })
+    if len(teams_seen) < 2:
+        teams_seen = [*teams_seen, "?", "?"][:2]
+    teams = teams_seen[:2]
+    palette = {teams[0]: "#d62728", teams[1]: "#1f77b4"}
+
+    # Initial rendered state = LAST frame (the goal moment). The Plotly
+    # slider's `active` is also set to len(frames)-1 below, and the panel
+    # caption says it defaults to the goal moment — initializing from
+    # frames[0] would leave the rendered chart at the start of the replay
+    # while the controls advertised the end. Pressing ▶ from the last
+    # frame loops back to 0 automatically since fromcurrent + the end is
+    # treated as a wrap by Plotly.
+    init_team, init_puck_x, init_puck_y = _frame_team_data(frames[-1], teams, id_to_name)
+    for team in teams:
+        d = init_team[team]
         fig.add_trace(go.Scatter(
-            x=[p["x"] for p in players],
-            y=[p["y"] for p in players],
-            mode="markers+text",
-            marker=dict(size=22, color=color,
+            x=d["x"], y=d["y"], mode="markers+text",
+            marker=dict(size=22, color=palette[team],
                         line=dict(color="white", width=1.5)),
-            text=[str(p["sweater"]) for p in players],
-            textposition="middle center",
-            textfont=dict(color="white", size=10),
+            text=d["text"], textposition="middle center",
+            textfont=dict(color="white", size=11),
             name=team,
-            hovertemplate=f"{team} #%{{text}}<extra></extra>",
-            showlegend=True,
+            hovertext=d["hover"], hovertemplate="%{hovertext}<extra></extra>",
         ))
+    fig.add_trace(go.Scatter(
+        x=init_puck_x, y=init_puck_y, mode="markers",
+        marker=dict(size=12, color="black", symbol="circle",
+                    line=dict(color="white", width=1.5)),
+        name="puck", hovertemplate="puck<extra></extra>",
+    ))
 
-    if puck is not None:
-        fig.add_trace(go.Scatter(
-            x=[puck[0]], y=[puck[1]],
-            mode="markers",
-            marker=dict(size=12, color="black", symbol="circle",
-                        line=dict(color="white", width=1.5)),
-            name="puck",
-            hovertemplate="puck<extra></extra>",
-            showlegend=True,
-        ))
+    # Indices of the 3 dynamic traces (rink is at index 0)
+    dynamic_idx = [len(fig.data) - 3, len(fig.data) - 2, len(fig.data) - 1]
+
+    plotly_frames = []
+    for i, frame in enumerate(frames):
+        frame_team, frame_puck_x, frame_puck_y = _frame_team_data(frame, teams, id_to_name)
+        traces = []
+        for team in teams:
+            d = frame_team[team]
+            traces.append(go.Scatter(
+                x=d["x"], y=d["y"], text=d["text"], hovertext=d["hover"],
+            ))
+        traces.append(go.Scatter(x=frame_puck_x, y=frame_puck_y))
+        plotly_frames.append(go.Frame(name=str(i), data=traces, traces=dynamic_idx))
+    fig.frames = plotly_frames
 
     fig.update_layout(
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02,
                     bgcolor="rgba(0,0,0,0)"),
+        updatemenus=[{
+            "type": "buttons",
+            "direction": "left",
+            "x": 0.0, "xanchor": "left",
+            "y": -0.08, "yanchor": "top",
+            "pad": {"r": 10, "t": 10},
+            "showactive": False,
+            "buttons": [
+                {
+                    "label": "▶ Play",
+                    "method": "animate",
+                    "args": [None, {
+                        "frame": {"duration": 70, "redraw": True},
+                        "fromcurrent": True,
+                        "transition": {"duration": 0},
+                    }],
+                },
+                {
+                    "label": "⏸ Pause",
+                    "method": "animate",
+                    "args": [[None], {
+                        "frame": {"duration": 0, "redraw": False},
+                        "mode": "immediate",
+                        "transition": {"duration": 0},
+                    }],
+                },
+            ],
+        }],
+        sliders=[{
+            "active": len(frames) - 1,
+            "x": 0.1, "xanchor": "left",
+            "y": -0.05, "yanchor": "top",
+            "len": 0.88,
+            "currentvalue": {"prefix": "frame ", "visible": True,
+                             "xanchor": "right"},
+            "steps": [
+                {
+                    "args": [[str(i)], {
+                        "frame": {"duration": 0, "redraw": True},
+                        "mode": "immediate",
+                        "transition": {"duration": 0},
+                    }],
+                    "label": str(i),
+                    "method": "animate",
+                }
+                for i in range(len(frames))
+            ],
+        }],
     )
     return fig
+
+
+def _legend_rows(frames: list, id_to_name: dict) -> list[dict]:
+    """Unique players seen across the sequence, with sweater + team + name."""
+    seen: dict[int, tuple[str, int | str]] = {}
+    for frame in frames:
+        for key, entry in frame["onIce"].items():
+            if str(key) == "1":
+                continue
+            pid = entry.get("playerId")
+            if pid and pid not in seen:
+                seen[pid] = (
+                    entry.get("teamAbbrev") or "?",
+                    entry.get("sweaterNumber", ""),
+                )
+    rows = [
+        {
+            "#": sweater,
+            "Player": id_to_name.get(int(pid), f"player {pid}"),
+            "Team": team,
+        }
+        for pid, (team, sweater) in seen.items()
+    ]
+    # Stable sort: team then sweater
+    rows.sort(key=lambda r: (r["Team"], int(r["#"]) if str(r["#"]).isdigit() else 999))
+    return rows
 
 
 def main():
@@ -458,16 +587,26 @@ def main():
                     f"`{exc.__class__.__name__}: {exc}`"
                 )
             else:
-                n = len(frames)
-                frame_idx = st.slider(
-                    "Frame (slide to scrub; last frame = goal moment)",
-                    min_value=0, max_value=n - 1, value=n - 1,
-                    key=f"frame_{sel.name}",
-                )
-                st.plotly_chart(
-                    _tracking_figure(frames, frame_idx),
-                    use_container_width=True,
-                )
+                id_to_name = _player_id_to_name()
+                track_col, legend_col = st.columns([3, 1])
+                with track_col:
+                    st.caption(
+                        "▶ Play animates the goal sequence; slider scrubs "
+                        "manually. Defaults to the goal moment (last frame)."
+                    )
+                    st.plotly_chart(
+                        _tracking_animation(frames, id_to_name),
+                        use_container_width=True,
+                    )
+                with legend_col:
+                    st.markdown("**On-ice players**")
+                    legend = _legend_rows(frames, id_to_name)
+                    st.dataframe(
+                        legend,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=520,
+                    )
 
     # Breakdowns
     st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
