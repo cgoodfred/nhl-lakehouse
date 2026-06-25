@@ -42,6 +42,7 @@ PLAYS_SCHEMA = StructType([
 GAMES_SCHEMA = StructType([
     StructField("game_id", LongType()),
     StructField("game_date", DateType()),
+    StructField("game_type", IntegerType()),
 ])
 
 PLAYERS_SCHEMA = StructType([
@@ -71,11 +72,15 @@ PLAYS_DATA = [
     (101, 2024020001, 20242025, "shot-on-goal", 8477942, 26, 2, "REG", "05:00", 85, 9, "wrist", "EV", False, 0, 1, None),  # noqa: E501
     (102, 2024020001, 20242025, "goal", 8478403, 26, 3, "REG", "10:00", None, None, "snap", "EV", False, 1, 1, None),  # noqa: E501
     (200, 2024020055, 20242025, "goal", 8471685, 26, 2, "REG", "08:45", 60, -20, "snap", "EV", True, 2, 1, _URL_200),  # noqa: E501
+    # event 300 is a real goal but in a 4 Nations Face-Off game (game_type=19).
+    # Should be filtered out by the NHL-only join.
+    (300, 2024190001, 20242025, "goal", 8480113, 52, 1, "REG", "12:00", 70, 4, "wrist", "EV", False, 1, 0, None),  # noqa: E501
 ]
 
 GAMES_DATA = [
-    (2024020001, datetime.date(2024, 10, 8)),
-    (2024020055, datetime.date(2024, 10, 25)),
+    (2024020001, datetime.date(2024, 10, 8), 2),   # regular season
+    (2024020055, datetime.date(2024, 10, 25), 2),  # regular season
+    (2024190001, datetime.date(2025, 2, 12), 19),  # 4 Nations Face-Off — filtered
 ]
 
 PLAYERS_DATA = [
@@ -109,11 +114,29 @@ def _by_event(shots_df):
 
 
 def test_filters_to_goals_with_coords(spark):
-    # 4 plays in fixture: 2 goals with coords, 1 goal without coords, 1 SOG.
-    # Only the 2 goals with coords should survive.
+    # 5 plays in fixture: 3 goals with coords (one in a 4-Nations game),
+    # 1 goal without coords, 1 SOG. The 4-Nations goal must be excluded
+    # by the NHL-only game-type filter; the no-coords goal by the coord
+    # filter; the SOG by the type_desc_key filter. -> 2 surviving goals.
     plays, games, players, teams = _build(spark)
     shots = transform_player_shots(plays, games, players, teams)
     assert shots.count() == 2
+
+
+def test_non_nhl_game_types_excluded(spark):
+    # Event 300 is a goal in a game_type=19 (4 Nations Face-Off) game.
+    # The NHL-only filter at the games join must drop it.
+    plays, games, players, teams = _build(spark)
+    by_event = _by_event(transform_player_shots(plays, games, players, teams))
+    assert 300 not in by_event
+
+
+def test_game_type_column_propagated(spark):
+    plays, games, players, teams = _build(spark)
+    by_event = _by_event(transform_player_shots(plays, games, players, teams))
+    # Both surviving goals are regular season (game_type=2) in the fixture.
+    for event_id in (100, 200):
+        assert by_event[event_id].game_type == 2
 
 
 def test_joins_produce_player_and_team_names(spark):
