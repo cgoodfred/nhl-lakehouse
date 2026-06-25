@@ -96,13 +96,44 @@ def _team_palette(team: str | None) -> dict[str, str]:
     return {"primary": MARKER_COLOR, "secondary": "#7a7a7a"}
 
 
-def _text_on(hex_color: str) -> str:
-    """Black or white for legibility against a colored background. Perceived
-    luminance via the standard ITU-R BT.601 weights."""
+def _luminance(hex_color: str) -> float:
+    """Perceived luminance in [0, 1] via ITU-R BT.601 weights."""
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return "#000000" if luminance > 0.55 else "#FFFFFF"
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def _text_on(hex_color: str) -> str:
+    """Black or white for legibility against a colored background."""
+    return "#000000" if _luminance(hex_color) > 0.55 else "#FFFFFF"
+
+
+# Luminance threshold below which we treat a color as "too dark for the rink
+# background" (#0e1d2b ≈ 0.10 luminance) — blends in, hard to read. Teams
+# with primaries below this swap to their secondary as the marker fill.
+_DARK_PRIMARY_THRESHOLD = 0.18
+
+
+def _rink_marker_colors(team: str | None) -> tuple[str, str]:
+    """Return (fill, border) for a goal marker on the dark rink. Swaps to
+    secondary when the team's primary is so dark it blends with the ice (LAK
+    black, BOS black, PIT black, etc.)."""
+    palette = _team_palette(team)
+    primary, secondary = palette["primary"], palette["secondary"]
+    if _luminance(primary) < _DARK_PRIMARY_THRESHOLD:
+        return secondary, primary
+    return primary, secondary
+
+
+def _tracking_team_color(team: str, home_team: str | None) -> str:
+    """Two-team broadcast convention on the tracking rink: home team in its
+    primary (with secondary-swap if too dark), away team in white. Mirrors
+    NHL's "home dark, away light" jersey convention and guarantees the two
+    teams are always visually distinct regardless of which colors collide."""
+    if team == home_team:
+        fill, _ = _rink_marker_colors(team)
+        return fill
+    return "#FFFFFF"
 
 # NHL player+puck tracking from wsr.nhle.com uses inches with origin at one
 # corner of the rink. Rink is 200ft x 85ft = 2400in x 1020in, so the center
@@ -414,13 +445,19 @@ def _frame_team_data(frame: dict, teams: list[str], id_to_name: dict):
     return by_team, puck_x, puck_y
 
 
-def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
+def _tracking_animation(
+    frames: list, id_to_name: dict, home_team: str | None,
+) -> go.Figure:
     """Animated rink view of the whole goal sequence.
 
     Plotly's native frames + updatemenus drive play/pause + the slider.
     The rink itself is one static trace (added by _rink_figure); the three
     dynamic traces (home team, away team, puck) are updated per frame via
-    indexed targeting so the rink never re-renders."""
+    indexed targeting so the rink never re-renders.
+
+    Coloring uses the NHL broadcast convention: home team in its primary
+    (or secondary if primary is too dark for the rink), away team in white.
+    Guarantees the two teams are always visually distinct and both readable."""
     fig = _rink_figure()
 
     teams_seen = sorted({
@@ -430,14 +467,7 @@ def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
     if len(teams_seen) < 2:
         teams_seen = [*teams_seen, "?", "?"][:2]
     teams = teams_seen[:2]
-    # Real team colors. If both teams' primaries are too similar (rare but
-    # possible: e.g. CGY vs DET both red), fall back to the secondary for
-    # the second team to keep them visually distinct on the rink.
-    primary_0 = _team_palette(teams[0])["primary"]
-    primary_1 = _team_palette(teams[1])["primary"]
-    if primary_0.lower() == primary_1.lower():
-        primary_1 = _team_palette(teams[1])["secondary"]
-    palette = {teams[0]: primary_0, teams[1]: primary_1}
+    palette = {team: _tracking_team_color(team, home_team) for team in teams}
 
     # Initial rendered state = LAST frame (the goal moment). The Plotly
     # slider's `active` is also set to len(frames)-1 below, and the panel
@@ -668,7 +698,7 @@ def main():
         f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
                    time_in_period, strength_state, is_empty_net,
                    game_date, home_score, away_score, ppt_replay_url,
-                   player_headshot
+                   player_headshot, home_team_abbrev
             FROM shots
             WHERE season = ? AND team_abbrev = ? AND player_id = ? AND {type_pred}
             ORDER BY game_date, period_number, time_in_period""",
@@ -702,6 +732,7 @@ def main():
                 unsafe_allow_html=True)
 
     # Rink + table
+    marker_fill, marker_border = _rink_marker_colors(team)
     left, right = st.columns([2, 1])
     with left:
         fig = _rink_figure()
@@ -709,8 +740,8 @@ def main():
             x=shots["x_coord"], y=shots["y_coord"],
             mode="markers",
             marker=dict(
-                size=15, color=accent,
-                line=dict(color=palette["secondary"], width=1.5),
+                size=15, color=marker_fill,
+                line=dict(color=marker_border, width=1.5),
                 symbol="circle",
             ),
             text=[
@@ -770,14 +801,17 @@ def main():
                 )
             else:
                 id_to_name = _player_id_to_name()
+                home_team = getattr(sel, "home_team_abbrev", None) or None
                 track_col, legend_col = st.columns([3, 1])
                 with track_col:
                     st.caption(
                         "▶ Play animates the goal sequence; slider scrubs "
-                        "manually. Defaults to the goal moment (last frame)."
+                        "manually. Defaults to the goal moment (last frame). "
+                        f"Home: **{home_team or '?'}** (in team color), "
+                        "away in white."
                     )
                     st.plotly_chart(
-                        _tracking_animation(frames, id_to_name),
+                        _tracking_animation(frames, id_to_name, home_team),
                         use_container_width=True,
                     )
                 with legend_col:
