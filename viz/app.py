@@ -47,7 +47,62 @@ BLUE_LINE_X = 25.0
 ICE_BG = "#0e1d2b"
 LINE_RED = "#d62728"
 LINE_BLUE = "#1f77b4"
-MARKER_COLOR = "#ffce00"
+MARKER_COLOR = "#ffce00"  # fallback when team color is unknown
+
+# NHL team color map — primary + secondary hex from each team's brand guide.
+# Used to color goal markers, accent metric cards, and swatch team rows in
+# the tracking-panel legend. Unknown teams fall back to MARKER_COLOR.
+NHL_TEAM_COLORS = {
+    "ANA": {"primary": "#F47A38", "secondary": "#B9975B"},
+    "ARI": {"primary": "#8C2633", "secondary": "#E2D6B5"},  # historic
+    "BOS": {"primary": "#FFB81C", "secondary": "#000000"},
+    "BUF": {"primary": "#003087", "secondary": "#FFB81C"},
+    "CGY": {"primary": "#C8102E", "secondary": "#F1BE48"},
+    "CAR": {"primary": "#CC0000", "secondary": "#000000"},
+    "CHI": {"primary": "#CF0A2C", "secondary": "#000000"},
+    "COL": {"primary": "#6F263D", "secondary": "#236192"},
+    "CBJ": {"primary": "#002654", "secondary": "#CE1126"},
+    "DAL": {"primary": "#006847", "secondary": "#8F8F8C"},
+    "DET": {"primary": "#CE1126", "secondary": "#FFFFFF"},
+    "EDM": {"primary": "#041E42", "secondary": "#FF4C00"},
+    "FLA": {"primary": "#041E42", "secondary": "#C8102E"},
+    "LAK": {"primary": "#111111", "secondary": "#A2AAAD"},
+    "MIN": {"primary": "#154734", "secondary": "#A6192E"},
+    "MTL": {"primary": "#AF1E2D", "secondary": "#192168"},
+    "NSH": {"primary": "#FFB81C", "secondary": "#041E42"},
+    "NJD": {"primary": "#CE1126", "secondary": "#000000"},
+    "NYI": {"primary": "#00539B", "secondary": "#F47D30"},
+    "NYR": {"primary": "#0038A8", "secondary": "#CE1126"},
+    "OTT": {"primary": "#C52032", "secondary": "#C2912C"},
+    "PHI": {"primary": "#F74902", "secondary": "#000000"},
+    "PIT": {"primary": "#000000", "secondary": "#CFC493"},
+    "SJS": {"primary": "#006D75", "secondary": "#000000"},
+    "SEA": {"primary": "#001628", "secondary": "#99D9D9"},
+    "STL": {"primary": "#002F87", "secondary": "#FCB514"},
+    "TBL": {"primary": "#002868", "secondary": "#FFFFFF"},
+    "TOR": {"primary": "#00205B", "secondary": "#FFFFFF"},
+    "UTA": {"primary": "#71AFE5", "secondary": "#090909"},
+    "VAN": {"primary": "#001F5B", "secondary": "#00843D"},
+    "VGK": {"primary": "#B4975A", "secondary": "#333F42"},
+    "WSH": {"primary": "#C8102E", "secondary": "#041E42"},
+    "WPG": {"primary": "#041E42", "secondary": "#004C97"},
+}
+
+
+def _team_palette(team: str | None) -> dict[str, str]:
+    """Return {primary, secondary} for a team, or sensible defaults."""
+    if team and team in NHL_TEAM_COLORS:
+        return NHL_TEAM_COLORS[team]
+    return {"primary": MARKER_COLOR, "secondary": "#7a7a7a"}
+
+
+def _text_on(hex_color: str) -> str:
+    """Black or white for legibility against a colored background. Perceived
+    luminance via the standard ITU-R BT.601 weights."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return "#000000" if luminance > 0.55 else "#FFFFFF"
 
 # NHL player+puck tracking from wsr.nhle.com uses inches with origin at one
 # corner of the rink. Rink is 200ft x 85ft = 2400in x 1020in, so the center
@@ -109,8 +164,8 @@ def _shots_connection():
 
 
 @st.cache_data(ttl=3600)
-def _player_id_to_name() -> dict[int, str]:
-    """Map playerId -> 'First Last' for legend rendering on the tracking view."""
+def _player_meta() -> dict[int, dict]:
+    """Map playerId -> {name, position} for headers and legend rendering."""
     catalog = _catalog()
     try:
         arrow = catalog.load_table("silver.players").scan().to_arrow()
@@ -118,11 +173,31 @@ def _player_id_to_name() -> dict[int, str]:
         return {}
     df = arrow.to_pandas()
     return {
-        int(pid): f"{first} {last}".strip()
-        for pid, first, last in zip(
-            df.player_id, df.first_name, df.last_name, strict=False,
+        int(pid): {
+            "name": f"{first} {last}".strip(),
+            "position": pos or "",
+        }
+        for pid, first, last, pos in zip(
+            df.player_id, df.first_name, df.last_name, df.position_code, strict=False,
         )
     }
+
+
+def _player_id_to_name() -> dict[int, str]:
+    """Backwards-compat wrapper used by the tracking-frame helper."""
+    return {pid: m["name"] for pid, m in _player_meta().items()}
+
+
+@st.cache_data(ttl=86400)
+def _headshot_url(season: int, team: str, player_id: int) -> str | None:
+    """Probe the NHL CDN for a player's headshot. Returns the URL if the asset
+    exists (HEAD returns 200), or None for the initials fallback."""
+    url = f"https://assets.nhle.com/mugs/nhl/{season}/{team}/{player_id}.png"
+    try:
+        r = requests.head(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
+        return url if r.status_code == 200 else None
+    except Exception:
+        return None
 
 
 def _rink_boundary_points(n_per_corner: int = 24):
@@ -248,6 +323,59 @@ def _fmt_season(season: int) -> str:
     return f"{s[:4]}-{s[4:]}"
 
 
+def _metric_card(label: str, value: str, accent: str) -> str:
+    """Render an HTML metric card with a left-border accent in team color."""
+    return (
+        f"<div style='background:#1a2129; border-left:4px solid {accent}; "
+        f"padding:14px 16px; border-radius:6px; height:100%;'>"
+        f"  <div style='color:#9aa5b1; font-size:0.75em; "
+        f"text-transform:uppercase; letter-spacing:0.05em;'>{label}</div>"
+        f"  <div style='color:#e8eef2; font-size:1.4em; font-weight:600; "
+        f"margin-top:4px;'>{value}</div>"
+        f"</div>"
+    )
+
+
+def _player_card(
+    name: str, team: str, position: str, season: int, player_id: int,
+) -> str:
+    """Player-identity card with headshot (or initials fallback) + name + meta."""
+    palette = _team_palette(team)
+    accent = palette["primary"]
+    text_on_accent = _text_on(accent)
+    initials = "".join(p[0] for p in name.split()[:2]).upper() or "?"
+
+    img_url = _headshot_url(season, team, player_id)
+    if img_url:
+        avatar_html = (
+            f"<img src='{img_url}' alt='{name}' style='width:56px; height:56px; "
+            f"border-radius:50%; object-fit:cover; border:2px solid {accent};' />"
+        )
+    else:
+        avatar_html = (
+            f"<div style='width:56px; height:56px; border-radius:50%; "
+            f"background:{accent}; color:{text_on_accent}; display:flex; "
+            f"align-items:center; justify-content:center; font-size:1.3em; "
+            f"font-weight:700; border:2px solid {accent};'>{initials}</div>"
+        )
+
+    position_meta = f" · {position}" if position else ""
+    return (
+        f"<div style='background:#1a2129; border-left:4px solid {accent}; "
+        f"padding:10px 16px; border-radius:6px; height:100%; display:flex; "
+        f"align-items:center; gap:14px;'>"
+        f"  {avatar_html}"
+        f"  <div>"
+        f"    <div style='color:#9aa5b1; font-size:0.75em; "
+        f"text-transform:uppercase; letter-spacing:0.05em;'>Player</div>"
+        f"    <div style='color:#e8eef2; font-size:1.25em; "
+        f"font-weight:600;'>{name}</div>"
+        f"    <div style='color:#9aa5b1; font-size:0.85em;'>{team}{position_meta}</div>"
+        f"  </div>"
+        f"</div>"
+    )
+
+
 def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
     """Convert NHL tracking inches -> PBP feet (center-origin)."""
     return (
@@ -304,7 +432,14 @@ def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
     if len(teams_seen) < 2:
         teams_seen = [*teams_seen, "?", "?"][:2]
     teams = teams_seen[:2]
-    palette = {teams[0]: "#d62728", teams[1]: "#1f77b4"}
+    # Real team colors. If both teams' primaries are too similar (rare but
+    # possible: e.g. CGY vs DET both red), fall back to the secondary for
+    # the second team to keep them visually distinct on the rink.
+    primary_0 = _team_palette(teams[0])["primary"]
+    primary_1 = _team_palette(teams[1])["primary"]
+    if primary_0.lower() == primary_1.lower():
+        primary_1 = _team_palette(teams[1])["secondary"]
+    palette = {teams[0]: primary_0, teams[1]: primary_1}
 
     # Initial rendered state = LAST frame (the goal moment). The Plotly
     # slider's `active` is also set to len(frames)-1 below, and the panel
@@ -402,6 +537,37 @@ def _tracking_animation(frames: list, id_to_name: dict) -> go.Figure:
         }],
     )
     return fig
+
+
+def _render_legend_html(rows: list[dict]) -> str:
+    """HTML table for the tracking-panel legend with a team-color swatch on
+    each row. st.dataframe doesn't support per-cell color styling cleanly so
+    we just render the table as markdown HTML."""
+    head = (
+        "<table style='width:100%; border-collapse:collapse; font-size:0.9em;'>"
+        "<thead><tr>"
+        "<th style='text-align:left; padding:6px 4px; color:#9aa5b1; "
+        "border-bottom:1px solid #243240;'>#</th>"
+        "<th style='text-align:left; padding:6px 4px; color:#9aa5b1; "
+        "border-bottom:1px solid #243240;'>Player</th>"
+        "<th style='text-align:left; padding:6px 4px; color:#9aa5b1; "
+        "border-bottom:1px solid #243240;'>Team</th>"
+        "</tr></thead><tbody>"
+    )
+    body = []
+    for r in rows:
+        team_color = _team_palette(r["Team"])["primary"]
+        body.append(
+            "<tr>"
+            f"<td style='padding:5px 4px; color:#e8eef2; font-weight:600;'>{r['#']}</td>"
+            f"<td style='padding:5px 4px; color:#e8eef2;'>{r['Player']}</td>"
+            f"<td style='padding:5px 4px; color:#e8eef2;'>"
+            f"<span style='display:inline-block; width:10px; height:10px; "
+            f"background:{team_color}; border-radius:50%; margin-right:6px; "
+            f"vertical-align:middle;'></span>{r['Team']}</td>"
+            "</tr>"
+        )
+    return head + "".join(body) + "</tbody></table>"
 
 
 def _legend_rows(frames: list, id_to_name: dict) -> list[dict]:
@@ -510,14 +676,25 @@ def main():
         [season, team, player_id],
     ).df()
 
-    # Summary metric row
+    # Summary metric row — custom HTML cards accented in the selected team's
+    # primary color so the page picks up a team identity when a team is picked.
+    palette = _team_palette(team)
+    accent = palette["primary"]
+    meta = _player_meta().get(int(player_id), {})
+    position = meta.get("position", "")
+
     st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>",
                 unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Player", player_name)
-    m2.metric("Team", team)
-    m3.metric("Season", _fmt_season(season))
-    m4.metric("Goals", len(shots))
+    m1.markdown(
+        _player_card(player_name, team, position, season, int(player_id)),
+        unsafe_allow_html=True,
+    )
+    m2.markdown(_metric_card("Team", team, accent), unsafe_allow_html=True)
+    m3.markdown(_metric_card("Season", _fmt_season(season), accent),
+                unsafe_allow_html=True)
+    m4.markdown(_metric_card("Goals", str(len(shots)), accent),
+                unsafe_allow_html=True)
 
     # Rink + table
     left, right = st.columns([2, 1])
@@ -527,8 +704,8 @@ def main():
             x=shots["x_coord"], y=shots["y_coord"],
             mode="markers",
             marker=dict(
-                size=15, color=MARKER_COLOR,
-                line=dict(color="#0e1217", width=1.5),
+                size=15, color=accent,
+                line=dict(color=palette["secondary"], width=1.5),
                 symbol="circle",
             ),
             text=[
@@ -601,12 +778,8 @@ def main():
                 with legend_col:
                     st.markdown("**On-ice players**")
                     legend = _legend_rows(frames, id_to_name)
-                    st.dataframe(
-                        legend,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=520,
-                    )
+                    st.markdown(_render_legend_html(legend),
+                                unsafe_allow_html=True)
 
     # Breakdowns
     st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
