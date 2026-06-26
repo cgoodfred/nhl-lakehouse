@@ -482,16 +482,43 @@ def _player_card(
     )
 
 
+_COMPARE_FALLBACK_B = "#00d4ff"  # cyan; no NHL primary is near this hue
+_COMPARE_COLOR_MIN_DISTANCE = 100  # RGB euclidean; below this reads as "same"
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _rgb_distance(a: str, b: str) -> float:
+    ra, ga, ba = _hex_to_rgb(a)
+    rb, gb, bb = _hex_to_rgb(b)
+    return ((ra - rb) ** 2 + (ga - gb) ** 2 + (ba - bb) ** 2) ** 0.5
+
+
 def _compare_colors(team_a: str, team_b: str) -> tuple[str, str]:
     """Pick a pair of distinguishable colors for two players' goal traces.
 
-    Default: each team's primary color (preserves the team-identity story).
-    Fallback when both players are on the same team: team primary + a
-    high-contrast gold so the two are never visually merged."""
-    a = _team_palette(team_a)["primary"]
+    Two-stage fallback chain:
+
+    1. Start from each team's _rink_marker_colors() fill — the same helper
+       the single-player goal map uses, which already swaps dark primaries
+       (LAK black, PIT black, WPG navy) to their lighter secondaries so
+       they don't blend with the dark ice. Skipping this step is what made
+       LAK-vs-WPG show as ~black-on-black on a dark rink.
+    2. If teams match OR the two resulting fills are still too close in
+       RGB space (e.g. NYR's deep blue vs WPG's secondary deep blue, EDM
+       orange vs CHI red), substitute a fixed high-contrast cyan for
+       player B. Cyan is far from every NHL team primary I've checked, so
+       it never collides back into a real team color."""
+    fill_a, _ = _rink_marker_colors(team_a)
     if team_a == team_b:
-        return (a, "#ffce00")
-    return (a, _team_palette(team_b)["primary"])
+        return (fill_a, _COMPARE_FALLBACK_B)
+    fill_b, _ = _rink_marker_colors(team_b)
+    if _rgb_distance(fill_a, fill_b) < _COMPARE_COLOR_MIN_DISTANCE:
+        return (fill_a, _COMPARE_FALLBACK_B)
+    return (fill_a, fill_b)
 
 
 def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
