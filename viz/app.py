@@ -400,11 +400,21 @@ def _fmt_season(season: int) -> str:
     return f"{s[:4]}-{s[4:]}"
 
 
+# Shared dimensions for the top-row cards. Player card has a 48px avatar +
+# 14px vertical padding = 76px natural height; metric cards have ~36px of
+# text content + 14px padding = ~64px naturally. Setting min-height on both
+# stretches the metric cards to match so the four cards in the row read as
+# one consistent strip rather than a tall card flanked by short ones.
+_CARD_BASE_STYLE = (
+    "background:#1a2129; border-radius:6px; padding:14px 16px; "
+    "min-height:80px; box-sizing:border-box;"
+)
+
+
 def _metric_card(label: str, value: str, accent: str) -> str:
     """Render an HTML metric card with a left-border accent in team color."""
     return (
-        f"<div style='background:#1a2129; border-left:4px solid {accent}; "
-        f"padding:14px 16px; border-radius:6px; height:100%;'>"
+        f"<div style='{_CARD_BASE_STYLE} border-left:4px solid {accent};'>"
         f"  <div style='color:#9aa5b1; font-size:0.75em; "
         f"text-transform:uppercase; letter-spacing:0.05em;'>{label}</div>"
         f"  <div style='color:#e8eef2; font-size:1.4em; font-weight:600; "
@@ -429,23 +439,23 @@ def _player_card(
 
     if headshot_url:
         avatar_html = (
-            f"<img src='{headshot_url}' alt='{name}' style='width:56px; "
-            f"height:56px; border-radius:50%; object-fit:cover; "
-            f"border:2px solid {accent};' />"
+            f"<img src='{headshot_url}' alt='{name}' style='width:48px; "
+            f"height:48px; border-radius:50%; object-fit:cover; "
+            f"border:2px solid {accent}; flex-shrink:0;' />"
         )
     else:
         avatar_html = (
-            f"<div style='width:56px; height:56px; border-radius:50%; "
+            f"<div style='width:48px; height:48px; border-radius:50%; "
             f"background:{accent}; color:{text_on_accent}; display:flex; "
-            f"align-items:center; justify-content:center; font-size:1.3em; "
-            f"font-weight:700; border:2px solid {accent};'>{initials}</div>"
+            f"align-items:center; justify-content:center; font-size:1.1em; "
+            f"font-weight:700; border:2px solid {accent}; "
+            f"flex-shrink:0;'>{initials}</div>"
         )
 
     position_meta = f" · {position}" if position else ""
     return (
-        f"<div style='background:#1a2129; border-left:4px solid {accent}; "
-        f"padding:10px 16px; border-radius:6px; height:100%; display:flex; "
-        f"align-items:center; gap:14px;'>"
+        f"<div style='{_CARD_BASE_STYLE} border-left:4px solid {accent}; "
+        f"display:flex; align-items:center; gap:14px;'>"
         f"  {avatar_html}"
         f"  <div>"
         f"    <div style='color:#9aa5b1; font-size:0.75em; "
