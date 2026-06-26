@@ -490,9 +490,35 @@ def _fetch_tracking(url: str):
     return resp.json()
 
 
-def _frame_team_data(frame: dict, teams: list[str], id_to_name: dict):
-    """Bin a single frame's onIce entries into per-team trace data + the puck."""
-    by_team = {t: {"x": [], "y": [], "text": [], "hover": []} for t in teams}
+# Tracking-panel storytelling constants.
+TRAIL_FRAMES = 20            # ~3 seconds of puck history at the ~7Hz feed
+TRAIL_COLOR = "#ffce00"      # gold; reads well against ice + team colors
+SCORER_HIGHLIGHT_COLOR = "#ffce00"  # matches trail; clearly the goal hero
+SCORER_MARKER_SIZE = 28      # vs 22 for everyone else
+SCORER_BORDER_WIDTH = 4      # vs 1.5 for everyone else
+
+# Speed presets for the animation. Plotly's frame.duration is the per-frame
+# delay in ms; smaller = faster. Defaults to Normal on first render.
+SPEED_PRESETS = {
+    "▶ Slow":   200,
+    "▶ Normal":  70,
+    "▶ Fast":    30,
+}
+
+
+def _frame_team_data(
+    frame: dict, teams: list[str], id_to_name: dict, scorer_id: int | None,
+):
+    """Bin a single frame's onIce entries into per-team trace data + the puck.
+
+    Each by_team[t] dict contains x, y, text, hover, is_scorer lists in
+    matching order. The caller turns is_scorer into per-marker size + border
+    arrays — kept here as a flag instead of styled values so we don't need
+    to pass the team's fill color in just to compute the non-scorer border."""
+    by_team = {
+        t: {"x": [], "y": [], "text": [], "hover": [], "is_scorer": []}
+        for t in teams
+    }
     puck_x: list[float] = []
     puck_y: list[float] = []
     for key, entry in frame["onIce"].items():
@@ -505,29 +531,80 @@ def _frame_team_data(frame: dict, teams: list[str], id_to_name: dict):
         if team not in by_team:
             continue
         sweater = str(entry.get("sweaterNumber", ""))
-        name = id_to_name.get(int(entry.get("playerId") or 0), "")
+        pid_raw = entry.get("playerId")
+        pid = int(pid_raw) if pid_raw is not None else None
+        name = id_to_name.get(pid or 0, "")
+        is_scorer = scorer_id is not None and pid == scorer_id
+        scorer_tag = " — SCORER" if is_scorer else ""
         by_team[team]["x"].append(x_ft)
         by_team[team]["y"].append(y_ft)
         by_team[team]["text"].append(sweater)
         by_team[team]["hover"].append(
-            f"{name} (#{sweater}, {team})" if name else f"#{sweater} ({team})"
+            f"{name} (#{sweater}, {team}){scorer_tag}" if name
+            else f"#{sweater} ({team}){scorer_tag}"
         )
+        by_team[team]["is_scorer"].append(is_scorer)
     return by_team, puck_x, puck_y
+
+
+def _puck_trail(frames: list, frame_idx: int, length: int = TRAIL_FRAMES):
+    """Last `length` puck positions ending at frame_idx, in time order.
+    Skips frames where the puck wasn't tracked (no '1' key in onIce)."""
+    start = max(0, frame_idx - length + 1)
+    xs: list[float] = []
+    ys: list[float] = []
+    for i in range(start, frame_idx + 1):
+        entry = frames[i]["onIce"].get("1")
+        if entry is None:
+            continue
+        x_ft, y_ft = _to_ft(entry["x"], entry["y"])
+        xs.append(x_ft)
+        ys.append(y_ft)
+    return xs, ys
+
+
+def _relative_seconds(frames: list) -> list[float]:
+    """Per-frame offset (seconds) from the goal moment (last frame).
+    Negative for everything before; the last frame is 0.0."""
+    if not frames:
+        return []
+    last_ts = frames[-1].get("timeStamp", 0)
+    return [(f.get("timeStamp", 0) - last_ts) / 100.0 for f in frames]
+    # NOTE: tracking timestamps are in centiseconds (1/100s), not millis —
+    # verified empirically: 140 frames spans ~14 seconds of action.
+
+
+def _build_team_marker_arrays(d: dict, fill: str):
+    """Turn per-marker is_scorer flags into the size + border arrays Plotly
+    needs. Border for non-scorers uses _text_on(fill) for legibility."""
+    default_border = _text_on(fill)
+    sizes = [SCORER_MARKER_SIZE if s else 22 for s in d["is_scorer"]]
+    border_widths = [SCORER_BORDER_WIDTH if s else 1.5 for s in d["is_scorer"]]
+    border_colors = [
+        SCORER_HIGHLIGHT_COLOR if s else default_border for s in d["is_scorer"]
+    ]
+    return sizes, border_widths, border_colors
 
 
 def _tracking_animation(
     frames: list, id_to_name: dict, home_team: str | None,
+    scorer_id: int | None = None,
 ) -> go.Figure:
     """Animated rink view of the whole goal sequence.
 
     Plotly's native frames + updatemenus drive play/pause + the slider.
-    The rink itself is one static trace (added by _rink_figure); the three
-    dynamic traces (home team, away team, puck) are updated per frame via
-    indexed targeting so the rink never re-renders.
+    Four dynamic traces (home team, away team, puck, puck trail) are
+    updated per frame via indexed targeting so the rink never re-renders.
 
     Coloring uses the NHL broadcast convention: home team in its primary
     (or secondary if primary is too dark for the rink), away team in white.
-    Guarantees the two teams are always visually distinct and both readable."""
+
+    The scoring player gets a larger marker with a bright gold border.
+    The puck trail trails the last ~3 seconds of puck position as a fading
+    line so you can see how the puck arrived.
+
+    The slider's step labels are seconds-relative-to-the-goal-moment
+    (e.g. "-12.3s", "0.0s") rather than raw frame indices."""
     fig = _rink_figure()
 
     teams_seen = sorted({
@@ -539,27 +616,25 @@ def _tracking_animation(
     teams = teams_seen[:2]
     palette = {team: _tracking_team_color(team, home_team) for team in teams}
 
+    # Pre-compute per-frame relative timestamps for the slider labels.
+    rel_secs = _relative_seconds(frames)
+
     # Initial rendered state = LAST frame (the goal moment). The Plotly
-    # slider's `active` is also set to len(frames)-1 below, and the panel
-    # caption says it defaults to the goal moment — initializing from
-    # frames[0] would leave the rendered chart at the start of the replay
-    # while the controls advertised the end. Pressing ▶ from the last
-    # frame loops back to 0 automatically since fromcurrent + the end is
-    # treated as a wrap by Plotly.
-    init_team, init_puck_x, init_puck_y = _frame_team_data(frames[-1], teams, id_to_name)
+    # slider's `active` is also set to len(frames)-1 below.
+    init_team, init_puck_x, init_puck_y = _frame_team_data(
+        frames[-1], teams, id_to_name, scorer_id,
+    )
     for team in teams:
         d = init_team[team]
         fill = palette[team]
-        # Sweater numbers go inside the marker — color them whatever's legible
-        # against the fill (black on white-fill away markers, white on the
-        # dark home-team fill). Same logic for the marker border so a white
-        # away marker isn't lost against the rink.
         text_color = _text_on(fill)
-        border_color = _text_on(fill)
+        sizes, border_widths, border_colors = _build_team_marker_arrays(d, fill)
         fig.add_trace(go.Scatter(
             x=d["x"], y=d["y"], mode="markers+text",
-            marker=dict(size=22, color=fill,
-                        line=dict(color=border_color, width=1.5)),
+            marker=dict(
+                size=sizes, color=fill,
+                line=dict(color=border_colors, width=border_widths),
+            ),
             text=d["text"], textposition="middle center",
             textfont=dict(color=text_color, size=11),
             name=team,
@@ -571,22 +646,73 @@ def _tracking_animation(
                     line=dict(color="white", width=1.5)),
         name="puck", hovertemplate="puck<extra></extra>",
     ))
+    # Puck trail — semi-transparent line. Stays under the puck marker since
+    # it's added after the player markers but before the puck (in render
+    # order it's the second-to-last trace).
+    init_trail_x, init_trail_y = _puck_trail(frames, len(frames) - 1)
+    fig.add_trace(go.Scatter(
+        x=init_trail_x, y=init_trail_y, mode="lines",
+        line=dict(color=TRAIL_COLOR, width=2.5),
+        opacity=0.6,
+        name="puck trail",
+        hoverinfo="skip",
+        showlegend=True,
+    ))
 
-    # Indices of the 3 dynamic traces (rink is at index 0)
-    dynamic_idx = [len(fig.data) - 3, len(fig.data) - 2, len(fig.data) - 1]
+    # Indices of the 4 dynamic traces (rink shapes don't take indices)
+    dynamic_idx = [
+        len(fig.data) - 4,   # home team
+        len(fig.data) - 3,   # away team
+        len(fig.data) - 2,   # puck
+        len(fig.data) - 1,   # puck trail
+    ]
 
     plotly_frames = []
     for i, frame in enumerate(frames):
-        frame_team, frame_puck_x, frame_puck_y = _frame_team_data(frame, teams, id_to_name)
+        frame_team, frame_puck_x, frame_puck_y = _frame_team_data(
+            frame, teams, id_to_name, scorer_id,
+        )
+        trail_x, trail_y = _puck_trail(frames, i)
         traces = []
         for team in teams:
             d = frame_team[team]
+            fill = palette[team]
+            sizes, border_widths, border_colors = _build_team_marker_arrays(d, fill)
             traces.append(go.Scatter(
                 x=d["x"], y=d["y"], text=d["text"], hovertext=d["hover"],
+                marker=dict(
+                    size=sizes, color=fill,
+                    line=dict(color=border_colors, width=border_widths),
+                ),
             ))
         traces.append(go.Scatter(x=frame_puck_x, y=frame_puck_y))
+        traces.append(go.Scatter(x=trail_x, y=trail_y))
         plotly_frames.append(go.Frame(name=str(i), data=traces, traces=dynamic_idx))
     fig.frames = plotly_frames
+
+    # Three play buttons (Slow / Normal / Fast) + Pause. Each play button
+    # reuses Plotly's same animate method with a different frame.duration.
+    play_buttons = [
+        {
+            "label": label,
+            "method": "animate",
+            "args": [None, {
+                "frame": {"duration": duration, "redraw": True},
+                "fromcurrent": True,
+                "transition": {"duration": 0},
+            }],
+        }
+        for label, duration in SPEED_PRESETS.items()
+    ]
+    pause_button = {
+        "label": "⏸ Pause",
+        "method": "animate",
+        "args": [[None], {
+            "frame": {"duration": 0, "redraw": False},
+            "mode": "immediate",
+            "transition": {"duration": 0},
+        }],
+    }
 
     fig.update_layout(
         showlegend=True,
@@ -599,34 +725,17 @@ def _tracking_animation(
             "y": -0.08, "yanchor": "top",
             "pad": {"r": 10, "t": 10},
             "showactive": False,
-            "buttons": [
-                {
-                    "label": "▶ Play",
-                    "method": "animate",
-                    "args": [None, {
-                        "frame": {"duration": 70, "redraw": True},
-                        "fromcurrent": True,
-                        "transition": {"duration": 0},
-                    }],
-                },
-                {
-                    "label": "⏸ Pause",
-                    "method": "animate",
-                    "args": [[None], {
-                        "frame": {"duration": 0, "redraw": False},
-                        "mode": "immediate",
-                        "transition": {"duration": 0},
-                    }],
-                },
-            ],
+            "buttons": [*play_buttons, pause_button],
         }],
         sliders=[{
             "active": len(frames) - 1,
             "x": 0.1, "xanchor": "left",
             "y": -0.05, "yanchor": "top",
             "len": 0.88,
-            "currentvalue": {"prefix": "frame ", "visible": True,
-                             "xanchor": "right"},
+            "currentvalue": {
+                "prefix": "t = ", "suffix": "s before goal",
+                "visible": True, "xanchor": "right",
+            },
             "steps": [
                 {
                     "args": [[str(i)], {
@@ -634,7 +743,10 @@ def _tracking_animation(
                         "mode": "immediate",
                         "transition": {"duration": 0},
                     }],
-                    "label": str(i),
+                    # Render the relative-time label (e.g. "-12.3" or "0.0")
+                    # without units — the slider's currentvalue prefix/suffix
+                    # provides the "t = ... s before goal" framing.
+                    "label": f"{abs(rel_secs[i]):.1f}" if rel_secs else str(i),
                     "method": "animate",
                 }
                 for i in range(len(frames))
@@ -936,16 +1048,21 @@ def main():
             else:
                 id_to_name = _player_id_to_name()
                 home_team = getattr(sel, "home_team_abbrev", None) or None
+                scorer_id = int(player_id) if player_id is not None else None
                 track_col, legend_col = st.columns([3, 1])
                 with track_col:
                     st.caption(
-                        "▶ Play animates the goal sequence; slider scrubs "
-                        "manually. Defaults to the goal moment (last frame). "
+                        "Slow / Normal / Fast play the goal sequence; the "
+                        "slider scrubs manually. Defaults to the goal "
+                        "moment (last frame). Scorer marker has a gold "
+                        "ring; gold line is the puck trail (~3s). "
                         f"Home: **{home_team or '?'}** (in team color), "
                         "away in white."
                     )
                     st.plotly_chart(
-                        _tracking_animation(frames, id_to_name, home_team),
+                        _tracking_animation(
+                            frames, id_to_name, home_team, scorer_id,
+                        ),
                         use_container_width=True,
                     )
                 with legend_col:
