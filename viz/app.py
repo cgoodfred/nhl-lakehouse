@@ -343,21 +343,28 @@ def _rink_shapes() -> list:
     return shapes
 
 
-def _rink_figure() -> go.Figure:
+def _boundary_path_shape() -> dict:
+    """SVG-path shape for the rink boundary with rounded corners. Used as a
+    shape (not a trace) so it can sit at layer="below" alongside the rink
+    markings — otherwise either the markings draw above the players or the
+    boundary fill draws over the markings."""
     pts = _rink_boundary_points()
-    boundary_x = [p[0] for p in pts]
-    boundary_y = [p[1] for p in pts]
+    path = "M " + " L ".join(f"{x},{y}" for x, y in pts) + " Z"
+    return dict(
+        type="path", path=path,
+        fillcolor=ICE_BG, line=dict(color="white", width=2.5),
+        layer="below",
+    )
 
+
+def _rink_figure() -> go.Figure:
+    # All rink content (boundary fill + markings) lives in layout.shapes so
+    # we can pin everything at layer="below". Boundary goes FIRST in the list
+    # so the ice fill is the bottom layer; markings stack on top within the
+    # "below" plane. Player + heatmap traces added later naturally land
+    # above the entire rink.
+    shapes = [_boundary_path_shape(), *_rink_shapes()]
     fig = go.Figure()
-    # Boards — drawn as a closed polygon trace so we can render the 28ft rounded
-    # corners that real NHL rinks have. Plotly shapes don't have a rounded-rect
-    # primitive, so we approximate by sampling along each corner arc.
-    fig.add_trace(go.Scatter(
-        x=boundary_x, y=boundary_y, mode="lines",
-        line=dict(color="white", width=2.5),
-        fill="toself", fillcolor=ICE_BG,
-        hoverinfo="skip", showlegend=False,
-    ))
     fig.update_layout(
         xaxis=dict(range=[-RINK_X - 4, RINK_X + 4], showgrid=False,
                    zeroline=False, visible=False),
@@ -367,7 +374,7 @@ def _rink_figure() -> go.Figure:
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
         height=520,
-        shapes=_rink_shapes(),
+        shapes=shapes,
         showlegend=False,
     )
     return fig
@@ -812,41 +819,75 @@ def main():
     ]
     left, right = st.columns([2, 1])
     with left:
+        view_mode = st.radio(
+            "View",
+            options=["Markers", "Heatmap", "Both"],
+            index=0, horizontal=True, key="goal_map_view_mode",
+            label_visibility="collapsed",
+        )
         fig = _rink_figure()
-        for period in PERIOD_ORDER:
-            sub = shots_with_period[shots_with_period["period_label"] == period]
-            if sub.empty:
-                continue
-            color = PERIOD_COLORS[period]
-            fig.add_trace(go.Scatter(
-                x=sub["x_coord"], y=sub["y_coord"],
-                mode="markers",
-                name=period,
-                marker=dict(
-                    size=15, color=color,
-                    line=dict(color=_text_on(color), width=1.5),
-                    symbol="circle",
-                ),
-                text=[
-                    (
-                        f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
-                        f"{r.shot_type or 'unknown'} - {r.strength_state}"
-                        f"{' (empty net)' if r.is_empty_net else ''}"
-                    )
-                    for r in sub.itertuples()
-                ],
-                hovertemplate="%{text}<extra></extra>",
+
+        show_heatmap = view_mode in ("Heatmap", "Both")
+        show_markers = view_mode in ("Markers", "Both")
+
+        if show_heatmap and len(shots_with_period) > 0:
+            # Density contour over goal coordinates. Inferno reads well on the
+            # dark rink and the "more goals = brighter" intuition is natural.
+            # Bins set to give ~10ft cells across both axes — fine enough to
+            # show real hotspots, coarse enough not to look noisy on the
+            # smallish per-player datasets.
+            fig.add_trace(go.Histogram2dContour(
+                x=shots_with_period["x_coord"],
+                y=shots_with_period["y_coord"],
+                colorscale="Inferno",
+                nbinsx=20, nbinsy=9,
+                showscale=False,
+                contours=dict(coloring="fill", showlines=False),
+                opacity=0.65,
+                hovertemplate="density: %{z}<extra></extra>",
+                name="Density",
+                showlegend=False,
             ))
-        # Inline legend top-right inside the rink.
+
+        if show_markers:
+            for period in PERIOD_ORDER:
+                sub = shots_with_period[shots_with_period["period_label"] == period]
+                if sub.empty:
+                    continue
+                color = PERIOD_COLORS[period]
+                fig.add_trace(go.Scatter(
+                    x=sub["x_coord"], y=sub["y_coord"],
+                    mode="markers",
+                    name=period,
+                    marker=dict(
+                        size=15, color=color,
+                        line=dict(color=_text_on(color), width=1.5),
+                        symbol="circle",
+                    ),
+                    text=[
+                        (
+                            f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                            f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                            f"{' (empty net)' if r.is_empty_net else ''}"
+                        )
+                        for r in sub.itertuples()
+                    ],
+                    hovertemplate="%{text}<extra></extra>",
+                ))
+
+        # Period legend horizontally above the rink so it never overlaps the
+        # ice. Only meaningful when markers are showing (heatmap-only mode
+        # has nothing to legend).
         fig.update_layout(
-            showlegend=True,
+            showlegend=show_markers,
             legend=dict(
-                x=0.99, y=0.99, xanchor="right", yanchor="top",
-                bgcolor="rgba(14,29,43,0.7)",
-                bordercolor="#243240", borderwidth=1,
+                orientation="h",
+                x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+                bgcolor="rgba(0,0,0,0)",
                 font=dict(size=11),
                 itemsizing="constant",
             ),
+            margin=dict(l=10, r=10, t=40 if show_markers else 10, b=10),
         )
         st.plotly_chart(fig, use_container_width=True)
 
