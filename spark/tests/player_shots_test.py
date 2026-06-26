@@ -49,6 +49,7 @@ PLAYERS_SCHEMA = StructType([
     StructField("player_id", IntegerType()),
     StructField("first_name", StringType()),
     StructField("last_name", StringType()),
+    StructField("headshot", StringType()),
 ])
 
 TEAMS_SCHEMA = StructType([
@@ -84,10 +85,10 @@ GAMES_DATA = [
 ]
 
 PLAYERS_DATA = [
-    (8480113, "Alex",    "Iafallo"),
-    (8471685, "Anze",    "Kopitar"),
-    (8477942, "Mark",    "Scheifele"),  # shoots in fixture but not a goal scorer
-    (8478403, "Quinton", "Byfield"),    # null-coord goal — should be filtered out
+    (8480113, "Alex",    "Iafallo",   "https://assets.nhle.com/mugs/nhl/20242025/WPG/8480113.png"),
+    (8471685, "Anze",    "Kopitar",   "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685.png"),
+    (8477942, "Mark",    "Scheifele", "https://assets.nhle.com/mugs/nhl/20242025/WPG/8477942.png"),
+    (8478403, "Quinton", "Byfield",   "https://assets.nhle.com/mugs/nhl/20242025/LAK/8478403.png"),
 ]
 
 TEAMS_DATA = [
@@ -137,6 +138,19 @@ def test_game_type_column_propagated(spark):
     # Both surviving goals are regular season (game_type=2) in the fixture.
     for event_id in (100, 200):
         assert by_event[event_id].game_type == 2
+
+
+def test_player_headshot_joined_from_players(spark):
+    plays, games, players, teams = _build(spark)
+    by_event = _by_event(transform_player_shots(plays, games, players, teams))
+    iafallo_goal = by_event[100]
+    kopitar_goal = by_event[200]
+    assert iafallo_goal.player_headshot == (
+        "https://assets.nhle.com/mugs/nhl/20242025/WPG/8480113.png"
+    )
+    assert kopitar_goal.player_headshot == (
+        "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685.png"
+    )
 
 
 def test_joins_produce_player_and_team_names(spark):

@@ -188,16 +188,9 @@ def _player_id_to_name() -> dict[int, str]:
     return {pid: m["name"] for pid, m in _player_meta().items()}
 
 
-@st.cache_data(ttl=86400)
-def _headshot_url(season: int, team: str, player_id: int) -> str | None:
-    """Probe the NHL CDN for a player's headshot. Returns the URL if the asset
-    exists (HEAD returns 200), or None for the initials fallback."""
-    url = f"https://assets.nhle.com/mugs/nhl/{season}/{team}/{player_id}.png"
-    try:
-        r = requests.head(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
-        return url if r.status_code == 200 else None
-    except Exception:
-        return None
+# NHL CDN headshot URLs come pre-baked in gold.player_shots.player_headshot
+# (populated from bronze rosterSpots[].headshot via silver.players). No
+# per-render HEAD probe needed — just consume the column.
 
 
 def _rink_boundary_points(n_per_corner: int = 24):
@@ -337,19 +330,24 @@ def _metric_card(label: str, value: str, accent: str) -> str:
 
 
 def _player_card(
-    name: str, team: str, position: str, season: int, player_id: int,
+    name: str, team: str, position: str, headshot_url: str | None,
 ) -> str:
-    """Player-identity card with headshot (or initials fallback) + name + meta."""
+    """Player-identity card with headshot (or initials fallback) + name + meta.
+
+    headshot_url is the URL stored in gold.player_shots (originating from
+    bronze rosterSpots[].headshot). Pass None to force the initials fallback
+    — the <img> tag has no onerror handler since Streamlit strips inline JS,
+    so we can't gracefully recover at render time."""
     palette = _team_palette(team)
     accent = palette["primary"]
     text_on_accent = _text_on(accent)
     initials = "".join(p[0] for p in name.split()[:2]).upper() or "?"
 
-    img_url = _headshot_url(season, team, player_id)
-    if img_url:
+    if headshot_url:
         avatar_html = (
-            f"<img src='{img_url}' alt='{name}' style='width:56px; height:56px; "
-            f"border-radius:50%; object-fit:cover; border:2px solid {accent};' />"
+            f"<img src='{headshot_url}' alt='{name}' style='width:56px; "
+            f"height:56px; border-radius:50%; object-fit:cover; "
+            f"border:2px solid {accent};' />"
         )
     else:
         avatar_html = (
@@ -669,7 +667,8 @@ def main():
     shots = con.execute(
         f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
                    time_in_period, strength_state, is_empty_net,
-                   game_date, home_score, away_score, ppt_replay_url
+                   game_date, home_score, away_score, ppt_replay_url,
+                   player_headshot
             FROM shots
             WHERE season = ? AND team_abbrev = ? AND player_id = ? AND {type_pred}
             ORDER BY game_date, period_number, time_in_period""",
@@ -682,12 +681,18 @@ def main():
     accent = palette["primary"]
     meta = _player_meta().get(int(player_id), {})
     position = meta.get("position", "")
+    # Headshot URL is in every row of `shots` for the selected player — they
+    # only differ if the player was traded mid-season; just take row 0.
+    headshot_url = (
+        shots["player_headshot"].iloc[0] if len(shots) and "player_headshot" in shots
+        else None
+    )
 
     st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>",
                 unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.markdown(
-        _player_card(player_name, team, position, season, int(player_id)),
+        _player_card(player_name, team, position, headshot_url),
         unsafe_allow_html=True,
     )
     m2.markdown(_metric_card("Team", team, accent), unsafe_allow_html=True)

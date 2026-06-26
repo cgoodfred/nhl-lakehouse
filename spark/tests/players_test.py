@@ -49,6 +49,22 @@ def test_max_by_picks_latest_position_for_player_in_multiple_games(spark, fixtur
     assert iafallo.last_name == "Iafallo"
 
 
+def test_headshot_captured(spark, fixtures_dir):
+    by_id = _by_player(transform_players(_load_raw(spark, fixtures_dir)))
+    # Single-game player: just the one URL.
+    kuemper = by_id[8475311]
+    assert kuemper.headshot == "https://assets.nhle.com/mugs/nhl/20242025/LAK/8475311.png"
+
+
+def test_headshot_uses_tie_break_for_same_date(spark, fixtures_dir):
+    # Kopitar appears in game 2 and game 3 on the same date. game 3 has the
+    # higher game_id so the struct(game_date, game_id) tie-break must pick
+    # game 3's URL (the _v3 variant), not game 2's.
+    by_id = _by_player(transform_players(_load_raw(spark, fixtures_dir)))
+    kopitar = by_id[8471685]
+    assert kopitar.headshot == "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685_v3.png"
+
+
 def test_first_and_last_seen_dates_span_games(spark, fixtures_dir):
     by_id = _by_player(transform_players(_load_raw(spark, fixtures_dir)))
     # Player in both games — date span across the two fixtures

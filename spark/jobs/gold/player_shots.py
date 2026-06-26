@@ -54,6 +54,7 @@ def transform_player_shots(
             players_df.select(
                 col("player_id"),
                 concat_ws(" ", col("first_name"), col("last_name")).alias("player_name"),
+                col("headshot").alias("player_headshot"),
             ).alias("pl"),
             col("p.scoring_player_id") == col("pl.player_id"),
             "inner",
@@ -74,6 +75,7 @@ def transform_player_shots(
             col("p.season").alias("season"),
             col("pl.player_id").alias("player_id"),
             col("pl.player_name").alias("player_name"),
+            col("pl.player_headshot").alias("player_headshot"),
             col("t.event_owner_team_id").alias("team_id"),
             col("t.event_owner_team_abbrev").alias("team_abbrev"),
             col("p.period_number").alias("period_number"),
