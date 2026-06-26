@@ -432,6 +432,7 @@ def _metric_card(label: str, value: str, accent: str) -> str:
 
 def _player_card(
     name: str, team: str, position: str, headshot_url: str | None,
+    goals: int | None = None,
 ) -> str:
     """Player-identity card with headshot (or initials fallback) + name + meta.
 
@@ -460,6 +461,11 @@ def _player_card(
         )
 
     position_meta = f" · {position}" if position else ""
+    goals_meta = (
+        f"<div style='color:{accent}; font-size:0.85em; font-weight:600; "
+        f"margin-top:2px;'>{goals} goals</div>"
+        if goals is not None else ""
+    )
     return (
         f"<div style='{_CARD_BASE_STYLE} border-left:4px solid {accent}; "
         f"display:flex; align-items:center; gap:14px;'>"
@@ -470,9 +476,22 @@ def _player_card(
         f"    <div style='color:#e8eef2; font-size:1.25em; "
         f"font-weight:600;'>{name}</div>"
         f"    <div style='color:#9aa5b1; font-size:0.85em;'>{team}{position_meta}</div>"
+        f"    {goals_meta}"
         f"  </div>"
         f"</div>"
     )
+
+
+def _compare_colors(team_a: str, team_b: str) -> tuple[str, str]:
+    """Pick a pair of distinguishable colors for two players' goal traces.
+
+    Default: each team's primary color (preserves the team-identity story).
+    Fallback when both players are on the same team: team primary + a
+    high-contrast gold so the two are never visually merged."""
+    a = _team_palette(team_a)["primary"]
+    if team_a == team_b:
+        return (a, "#ffce00")
+    return (a, _team_palette(team_b)["primary"])
 
 
 def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
@@ -817,6 +836,119 @@ def _legend_rows(frames: list, id_to_name: dict) -> list[dict]:
     return rows
 
 
+def _compare_shot_trace(shots_df, name: str, color: str) -> go.Scatter:
+    """One player's goals as a Scatter trace for the compare-mode overlay."""
+    return go.Scatter(
+        x=shots_df["x_coord"], y=shots_df["y_coord"],
+        mode="markers",
+        name=f"{name} ({len(shots_df)})",
+        marker=dict(
+            size=15, color=color,
+            line=dict(color=_text_on(color), width=1.5),
+            symbol="circle",
+        ),
+        text=[
+            (
+                f"<b>{name}</b><br>"
+                f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                f"{' (empty net)' if r.is_empty_net else ''}"
+            )
+            for r in shots_df.itertuples()
+        ],
+        hovertemplate="%{text}<extra></extra>",
+    )
+
+
+def _compare_breakdown_row(
+    title: str, counts_a, counts_b, name_a: str, name_b: str,
+    sort: bool = True,
+):
+    """One row of two pies (same dimension, one per player) for the compare
+    breakdowns block."""
+    st.markdown(f"**{title}**")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(
+            _pie(counts_a.values.tolist(), counts_a.index.tolist(),
+                 name_a, sort=sort),
+            use_container_width=True,
+        )
+    with c2:
+        st.plotly_chart(
+            _pie(counts_b.values.tolist(), counts_b.index.tolist(),
+                 name_b, sort=sort),
+            use_container_width=True,
+        )
+
+
+def _render_compare(
+    shots_a, shots_b, name_a: str, name_b: str, team_a: str, team_b: str,
+):
+    """Side-by-side comparison view: overlay both players' goals on one rink
+    plus paired breakdown pies. Tracking + per-goal table are intentionally
+    hidden — they're per-goal views that don't fit the comparison frame."""
+    color_a, color_b = _compare_colors(team_a, team_b)
+
+    fig = _rink_figure()
+    # Player A added FIRST so the legend reads in the same order as the
+    # cards above (left card → first legend entry).
+    fig.add_trace(_compare_shot_trace(shots_a, name_a, color_a))
+    fig.add_trace(_compare_shot_trace(shots_b, name_b, color_b))
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11),
+            itemsizing="constant",
+        ),
+        margin=dict(l=10, r=10, t=40, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
+                unsafe_allow_html=True)
+    st.markdown("### Breakdowns")
+
+    # Shot type
+    counts_a = _bucket_small_slices(
+        shots_a["shot_type"].fillna("unknown").value_counts(),
+    )
+    counts_b = _bucket_small_slices(
+        shots_b["shot_type"].fillna("unknown").value_counts(),
+    )
+    _compare_breakdown_row("Shot type", counts_a, counts_b, name_a, name_b)
+
+    # Period — same ordering logic as single-player view.
+    def _periods(df):
+        s = df.apply(lambda r: _period_label(r.period_number, r.period_type), axis=1)
+        counts = s.value_counts()
+        counts = counts.reindex(
+            [p for p in PERIOD_ORDER if p in counts.index]
+            + [p for p in counts.index if p not in PERIOD_ORDER]
+        )
+        return _bucket_small_slices(counts, preserve_order=True)
+    _compare_breakdown_row(
+        "Period", _periods(shots_a), _periods(shots_b), name_a, name_b,
+        sort=False,
+    )
+
+    # Strength state — empty-net broken out as its own bucket.
+    def _strength_counts(df):
+        s = df.apply(
+            lambda r: "EN" if r.is_empty_net else (r.strength_state or "unknown"),
+            axis=1,
+        )
+        return _bucket_small_slices(s.value_counts())
+    _compare_breakdown_row(
+        "Strength state",
+        _strength_counts(shots_a), _strength_counts(shots_b),
+        name_a, name_b,
+    )
+
+
 def main():
     st.set_page_config(page_title="NHL Goal Map", layout="wide", page_icon="🏒")
 
@@ -917,6 +1049,44 @@ def main():
     player_id = players_rows[player_labels.index(player_label)][0]
     player_name = players_rows[player_labels.index(player_label)][1]
 
+    # Compare mode — optional second player overlaid on the same rink.
+    # Same season + game_type + date_range as player A (apples-to-apples);
+    # team can differ.
+    sidebar.markdown("---")
+    compare_on = sidebar.toggle("Compare with another player", value=False)
+    player_b_id = None
+    player_b_name = None
+    team_b = None
+    if compare_on:
+        team_b_default = next((t for t in teams if t != team), team)
+        team_b = sidebar.selectbox(
+            "Team (compare)", teams,
+            index=teams.index(team_b_default), key="team_b",
+        )
+        players_b_rows = con.execute(
+            f"""SELECT player_id, player_name, COUNT(*) AS goals
+                FROM shots
+                WHERE season = ? AND team_abbrev = ? AND {type_pred}
+                  AND game_date BETWEEN ? AND ?
+                  AND player_id != ?
+                GROUP BY player_id, player_name
+                ORDER BY goals DESC, player_name""",
+            [season, team_b, date_start, date_end, player_id],
+        ).fetchall()
+        if not players_b_rows:
+            sidebar.warning(f"No other goals for {team_b} in this slice.")
+            compare_on = False
+        else:
+            player_b_labels_ui = [
+                f"{name} ({goals})" for _id, name, goals in players_b_rows
+            ]
+            player_b_label = sidebar.selectbox(
+                "Player (compare)", player_b_labels_ui, key="player_b",
+            )
+            idx_b = player_b_labels_ui.index(player_b_label)
+            player_b_id = players_b_rows[idx_b][0]
+            player_b_name = players_b_rows[idx_b][1]
+
     shots = con.execute(
         f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
                    time_in_period, strength_state, is_empty_net,
@@ -928,6 +1098,19 @@ def main():
             ORDER BY game_date, period_number, time_in_period""",
         [season, team, player_id, date_start, date_end],
     ).df()
+
+    shots_b = None
+    if compare_on:
+        shots_b = con.execute(
+            f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
+                       time_in_period, strength_state, is_empty_net,
+                       game_date, player_headshot
+                FROM shots
+                WHERE season = ? AND team_abbrev = ? AND player_id = ?
+                  AND {type_pred} AND game_date BETWEEN ? AND ?
+                ORDER BY game_date, period_number, time_in_period""",
+            [season, team_b, player_b_id, date_start, date_end],
+        ).df()
 
     # Summary metric row — custom HTML cards accented in the selected team's
     # primary color so the page picks up a team identity when a team is picked.
@@ -944,16 +1127,48 @@ def main():
 
     st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>",
                 unsafe_allow_html=True)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.markdown(
-        _player_card(player_name, team, position, headshot_url),
-        unsafe_allow_html=True,
-    )
-    m2.markdown(_metric_card("Team", team, accent), unsafe_allow_html=True)
-    m3.markdown(_metric_card("Season", _fmt_season(season), accent),
-                unsafe_allow_html=True)
-    m4.markdown(_metric_card("Goals", str(len(shots)), accent),
-                unsafe_allow_html=True)
+
+    if compare_on:
+        # Two player cards (each with their goal count) side-by-side. Goal
+        # counts move INTO the card subtitle since the metric-card row is
+        # gone — at-a-glance the comparison reads as "left vs right" with
+        # the goal totals right where the eye lands first.
+        meta_b = _player_meta().get(int(player_b_id), {})
+        position_b = meta_b.get("position", "")
+        headshot_url_b = (
+            shots_b["player_headshot"].iloc[0]
+            if len(shots_b) and "player_headshot" in shots_b
+            else None
+        )
+        c1, c2 = st.columns(2)
+        c1.markdown(
+            _player_card(
+                player_name, team, position, headshot_url, goals=len(shots),
+            ),
+            unsafe_allow_html=True,
+        )
+        c2.markdown(
+            _player_card(
+                player_b_name, team_b, position_b, headshot_url_b,
+                goals=len(shots_b),
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(
+            _player_card(player_name, team, position, headshot_url),
+            unsafe_allow_html=True,
+        )
+        m2.markdown(_metric_card("Team", team, accent), unsafe_allow_html=True)
+        m3.markdown(_metric_card("Season", _fmt_season(season), accent),
+                    unsafe_allow_html=True)
+        m4.markdown(_metric_card("Goals", str(len(shots)), accent),
+                    unsafe_allow_html=True)
+
+    if compare_on:
+        _render_compare(shots, shots_b, player_name, player_b_name, team, team_b)
+        return
 
     # Rink + table. Goals are colored by PERIOD (not by team — team identity
     # already shows in the metric cards + tracking view) so each marker is
