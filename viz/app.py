@@ -841,6 +841,11 @@ def main():
         st.warning("No data in gold.player_shots yet.")
         return
 
+    # Filters live in the sidebar so they stay visible while the user scrolls
+    # through the rink + breakdowns + tracking panel — without the sidebar
+    # they scrolled off the top of the page and forced a scroll-back to
+    # change views.
+
     # Game-type filter maps the UI choice to a SQL predicate on shots.game_type.
     # NHL gameType encoding: 1 preseason, 2 regular season, 3 playoffs.
     GAME_TYPE_OPTIONS = {
@@ -850,9 +855,10 @@ def main():
         "All NHL":        "game_type IN (1, 2, 3)",
     }
 
-    col_season, col_type, col_team, col_player = st.columns(4)
-    season = col_season.selectbox("Season", seasons, format_func=_fmt_season)
-    game_type_label = col_type.selectbox(
+    sidebar = st.sidebar
+    sidebar.markdown("### Filters")
+    season = sidebar.selectbox("Season", seasons, format_func=_fmt_season)
+    game_type_label = sidebar.selectbox(
         "Game type", list(GAME_TYPE_OPTIONS.keys()), index=0,
     )
     type_pred = GAME_TYPE_OPTIONS[game_type_label]
@@ -865,25 +871,49 @@ def main():
     if not teams:
         st.warning(f"No goals for {_fmt_season(season)} {game_type_label}.")
         return
-    team = col_team.selectbox(
+    team = sidebar.selectbox(
         "Team", teams,
         index=teams.index("LAK") if "LAK" in teams else 0,
     )
+
+    # Date range is bounded to the (season, game_type) slice — narrowing
+    # to team would make the bounds jump as the user changed teams, a
+    # worse UX than a slightly looser range.
+    date_bounds = con.execute(
+        f"SELECT MIN(game_date), MAX(game_date) FROM shots "
+        f"WHERE season = ? AND {type_pred}",
+        [season],
+    ).fetchone()
+    date_min, date_max = date_bounds
+    date_range = sidebar.date_input(
+        "Date range",
+        value=(date_min, date_max),
+        min_value=date_min, max_value=date_max,
+    )
+    # Streamlit returns a single-element tuple while the user is mid-pick
+    # (only one end selected); coerce to a usable 2-tuple either way.
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        date_start, date_end = date_range
+    else:
+        only = date_range[0] if isinstance(date_range, tuple) else date_range
+        date_start = date_end = only
 
     players_rows = con.execute(
         f"""SELECT player_id, player_name, COUNT(*) AS goals
             FROM shots
             WHERE season = ? AND team_abbrev = ? AND {type_pred}
+              AND game_date BETWEEN ? AND ?
             GROUP BY player_id, player_name ORDER BY goals DESC, player_name""",
-        [season, team],
+        [season, team, date_start, date_end],
     ).fetchall()
     if not players_rows:
         st.warning(
-            f"No goals for {team} in {_fmt_season(season)} {game_type_label}."
+            f"No goals for {team} in {_fmt_season(season)} {game_type_label} "
+            f"between {date_start} and {date_end}."
         )
         return
     player_labels = [f"{name} ({goals})" for _id, name, goals in players_rows]
-    player_label = col_player.selectbox("Player (goal count)", player_labels)
+    player_label = sidebar.selectbox("Player (goal count)", player_labels)
     player_id = players_rows[player_labels.index(player_label)][0]
     player_name = players_rows[player_labels.index(player_label)][1]
 
@@ -894,8 +924,9 @@ def main():
                    player_headshot, home_team_abbrev
             FROM shots
             WHERE season = ? AND team_abbrev = ? AND player_id = ? AND {type_pred}
+              AND game_date BETWEEN ? AND ?
             ORDER BY game_date, period_number, time_in_period""",
-        [season, team, player_id],
+        [season, team, player_id, date_start, date_end],
     ).df()
 
     # Summary metric row — custom HTML cards accented in the selected team's
