@@ -43,6 +43,7 @@ GAMES_SCHEMA = StructType([
     StructField("game_id", LongType()),
     StructField("game_date", DateType()),
     StructField("game_type", IntegerType()),
+    StructField("home_team_abbrev", StringType()),
 ])
 
 PLAYERS_SCHEMA = StructType([
@@ -79,9 +80,9 @@ PLAYS_DATA = [
 ]
 
 GAMES_DATA = [
-    (2024020001, datetime.date(2024, 10, 8), 2),   # regular season
-    (2024020055, datetime.date(2024, 10, 25), 2),  # regular season
-    (2024190001, datetime.date(2025, 2, 12), 19),  # 4 Nations Face-Off — filtered
+    (2024020001, datetime.date(2024, 10, 8), 2, "WPG"),    # regular season, WPG home
+    (2024020055, datetime.date(2024, 10, 25), 2, "LAK"),   # regular season, LAK home
+    (2024190001, datetime.date(2025, 2, 12), 19, "SWE"),   # 4 Nations — filtered
 ]
 
 PLAYERS_DATA = [
@@ -151,6 +152,15 @@ def test_player_headshot_joined_from_players(spark):
     assert kopitar_goal.player_headshot == (
         "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685.png"
     )
+
+
+def test_home_team_abbrev_joined_from_games(spark):
+    plays, games, players, teams = _build(spark)
+    by_event = _by_event(transform_player_shots(plays, games, players, teams))
+    # event 100 → game 2024020001 → home WPG
+    assert by_event[100].home_team_abbrev == "WPG"
+    # event 200 → game 2024020055 → home LAK
+    assert by_event[200].home_team_abbrev == "LAK"
 
 
 def test_joins_produce_player_and_team_names(spark):

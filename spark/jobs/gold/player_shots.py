@@ -46,7 +46,9 @@ def transform_player_shots(
     return (
         goals.alias("p")
         .join(
-            nhl_games.select("game_id", "game_date", "game_type").alias("g"),
+            nhl_games.select(
+                "game_id", "game_date", "game_type", "home_team_abbrev",
+            ).alias("g"),
             col("p.game_id") == col("g.game_id"),
             "inner",
         )
@@ -72,6 +74,7 @@ def transform_player_shots(
             col("p.game_id").alias("game_id"),
             col("g.game_date").alias("game_date"),
             col("g.game_type").alias("game_type"),
+            col("g.home_team_abbrev").alias("home_team_abbrev"),
             col("p.season").alias("season"),
             col("pl.player_id").alias("player_id"),
             col("pl.player_name").alias("player_name"),
