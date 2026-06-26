@@ -812,34 +812,66 @@ def main():
     ]
     left, right = st.columns([2, 1])
     with left:
+        view_mode = st.radio(
+            "View",
+            options=["Markers", "Heatmap", "Both"],
+            index=0, horizontal=True, key="goal_map_view_mode",
+            label_visibility="collapsed",
+        )
         fig = _rink_figure()
-        for period in PERIOD_ORDER:
-            sub = shots_with_period[shots_with_period["period_label"] == period]
-            if sub.empty:
-                continue
-            color = PERIOD_COLORS[period]
-            fig.add_trace(go.Scatter(
-                x=sub["x_coord"], y=sub["y_coord"],
-                mode="markers",
-                name=period,
-                marker=dict(
-                    size=15, color=color,
-                    line=dict(color=_text_on(color), width=1.5),
-                    symbol="circle",
-                ),
-                text=[
-                    (
-                        f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
-                        f"{r.shot_type or 'unknown'} - {r.strength_state}"
-                        f"{' (empty net)' if r.is_empty_net else ''}"
-                    )
-                    for r in sub.itertuples()
-                ],
-                hovertemplate="%{text}<extra></extra>",
+
+        show_heatmap = view_mode in ("Heatmap", "Both")
+        show_markers = view_mode in ("Markers", "Both")
+
+        if show_heatmap and len(shots_with_period) > 0:
+            # Density contour over goal coordinates. Inferno reads well on the
+            # dark rink and the "more goals = brighter" intuition is natural.
+            # Bins set to give ~10ft cells across both axes — fine enough to
+            # show real hotspots, coarse enough not to look noisy on the
+            # smallish per-player datasets.
+            fig.add_trace(go.Histogram2dContour(
+                x=shots_with_period["x_coord"],
+                y=shots_with_period["y_coord"],
+                colorscale="Inferno",
+                nbinsx=20, nbinsy=9,
+                showscale=False,
+                contours=dict(coloring="fill", showlines=False),
+                opacity=0.65,
+                hovertemplate="density: %{z}<extra></extra>",
+                name="Density",
+                showlegend=False,
             ))
-        # Inline legend top-right inside the rink.
+
+        if show_markers:
+            for period in PERIOD_ORDER:
+                sub = shots_with_period[shots_with_period["period_label"] == period]
+                if sub.empty:
+                    continue
+                color = PERIOD_COLORS[period]
+                fig.add_trace(go.Scatter(
+                    x=sub["x_coord"], y=sub["y_coord"],
+                    mode="markers",
+                    name=period,
+                    marker=dict(
+                        size=15, color=color,
+                        line=dict(color=_text_on(color), width=1.5),
+                        symbol="circle",
+                    ),
+                    text=[
+                        (
+                            f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                            f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                            f"{' (empty net)' if r.is_empty_net else ''}"
+                        )
+                        for r in sub.itertuples()
+                    ],
+                    hovertemplate="%{text}<extra></extra>",
+                ))
+
+        # Inline legend top-right inside the rink. Only meaningful when
+        # markers are showing (heatmap-only mode has nothing to legend).
         fig.update_layout(
-            showlegend=True,
+            showlegend=show_markers,
             legend=dict(
                 x=0.99, y=0.99, xanchor="right", yanchor="top",
                 bgcolor="rgba(14,29,43,0.7)",
