@@ -220,7 +220,7 @@ def _catalog() -> RestCatalog:
     )
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Loading goals from Iceberg…")
 def _shots_arrow():
     catalog = _catalog()
     try:
@@ -239,7 +239,7 @@ def _shots_connection():
     return con
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner="Loading player metadata…")
 def _player_meta() -> dict[int, dict]:
     """Map playerId -> {name, position} for headers and legend rendering."""
     catalog = _catalog()
