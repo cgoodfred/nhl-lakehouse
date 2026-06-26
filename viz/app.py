@@ -491,7 +491,7 @@ def _fetch_tracking(url: str):
 
 
 # Tracking-panel storytelling constants.
-TRAIL_FRAMES = 20            # ~3 seconds of puck history at the ~7Hz feed
+TRAIL_FRAMES = 30            # ~3 seconds of puck history at the 10Hz feed
 TRAIL_COLOR = "#ffce00"      # gold; reads well against ice + team colors
 SCORER_HIGHLIGHT_COLOR = "#ffce00"  # matches trail; clearly the goal hero
 SCORER_MARKER_SIZE = 28      # vs 22 for everyone else
@@ -565,13 +565,17 @@ def _puck_trail(frames: list, frame_idx: int, length: int = TRAIL_FRAMES):
 
 def _relative_seconds(frames: list) -> list[float]:
     """Per-frame offset (seconds) from the goal moment (last frame).
-    Negative for everything before; the last frame is 0.0."""
+    Negative for everything before; the last frame is 0.0.
+
+    Tracking timestamps are in DECISECONDS (1/10s), verified against a
+    live ev274.json sample where 120 frames spanned a delta of 119 →
+    11.9 seconds of action at a steady 10Hz cadence (delta=1 per frame).
+    Treating them as millis or centiseconds would mis-scale the slider
+    by 100x or 10x respectively."""
     if not frames:
         return []
     last_ts = frames[-1].get("timeStamp", 0)
-    return [(f.get("timeStamp", 0) - last_ts) / 100.0 for f in frames]
-    # NOTE: tracking timestamps are in centiseconds (1/100s), not millis —
-    # verified empirically: 140 frames spans ~14 seconds of action.
+    return [(f.get("timeStamp", 0) - last_ts) / 10.0 for f in frames]
 
 
 def _build_team_marker_arrays(d: dict, fill: str):
