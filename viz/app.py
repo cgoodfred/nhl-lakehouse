@@ -343,21 +343,28 @@ def _rink_shapes() -> list:
     return shapes
 
 
-def _rink_figure() -> go.Figure:
+def _boundary_path_shape() -> dict:
+    """SVG-path shape for the rink boundary with rounded corners. Used as a
+    shape (not a trace) so it can sit at layer="below" alongside the rink
+    markings — otherwise either the markings draw above the players or the
+    boundary fill draws over the markings."""
     pts = _rink_boundary_points()
-    boundary_x = [p[0] for p in pts]
-    boundary_y = [p[1] for p in pts]
+    path = "M " + " L ".join(f"{x},{y}" for x, y in pts) + " Z"
+    return dict(
+        type="path", path=path,
+        fillcolor=ICE_BG, line=dict(color="white", width=2.5),
+        layer="below",
+    )
 
+
+def _rink_figure() -> go.Figure:
+    # All rink content (boundary fill + markings) lives in layout.shapes so
+    # we can pin everything at layer="below". Boundary goes FIRST in the list
+    # so the ice fill is the bottom layer; markings stack on top within the
+    # "below" plane. Player + heatmap traces added later naturally land
+    # above the entire rink.
+    shapes = [_boundary_path_shape(), *_rink_shapes()]
     fig = go.Figure()
-    # Boards — drawn as a closed polygon trace so we can render the 28ft rounded
-    # corners that real NHL rinks have. Plotly shapes don't have a rounded-rect
-    # primitive, so we approximate by sampling along each corner arc.
-    fig.add_trace(go.Scatter(
-        x=boundary_x, y=boundary_y, mode="lines",
-        line=dict(color="white", width=2.5),
-        fill="toself", fillcolor=ICE_BG,
-        hoverinfo="skip", showlegend=False,
-    ))
     fig.update_layout(
         xaxis=dict(range=[-RINK_X - 4, RINK_X + 4], showgrid=False,
                    zeroline=False, visible=False),
@@ -367,7 +374,7 @@ def _rink_figure() -> go.Figure:
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
         height=520,
-        shapes=_rink_shapes(),
+        shapes=shapes,
         showlegend=False,
     )
     return fig
@@ -868,17 +875,19 @@ def main():
                     hovertemplate="%{text}<extra></extra>",
                 ))
 
-        # Inline legend top-right inside the rink. Only meaningful when
-        # markers are showing (heatmap-only mode has nothing to legend).
+        # Period legend horizontally above the rink so it never overlaps the
+        # ice. Only meaningful when markers are showing (heatmap-only mode
+        # has nothing to legend).
         fig.update_layout(
             showlegend=show_markers,
             legend=dict(
-                x=0.99, y=0.99, xanchor="right", yanchor="top",
-                bgcolor="rgba(14,29,43,0.7)",
-                bordercolor="#243240", borderwidth=1,
+                orientation="h",
+                x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+                bgcolor="rgba(0,0,0,0)",
                 font=dict(size=11),
                 itemsizing="constant",
             ),
+            margin=dict(l=10, r=10, t=40 if show_markers else 10, b=10),
         )
         st.plotly_chart(fig, use_container_width=True)
 
