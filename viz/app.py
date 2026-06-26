@@ -113,6 +113,44 @@ def _text_on(hex_color: str) -> str:
 # with primaries below this swap to their secondary as the marker fill.
 _DARK_PRIMARY_THRESHOLD = 0.18
 
+# Goal markers on the rink are colored by period so each marker is self-
+# describing at a glance ("when did this player score"). Visual hierarchy:
+# regulation periods get bold distinct hues, OT/SO get more saturated outliers.
+# All chosen for visibility against the dark rink background.
+PERIOD_COLORS = {
+    "P1": "#ff6b6b",   # coral red
+    "P2": "#4ecdc4",   # teal
+    "P3": "#ffe66d",   # bright yellow
+    "OT": "#c084fc",   # purple
+    "SO": "#f97316",   # orange
+}
+
+# Ordering for legend + pies — keep periods in temporal sequence rather than
+# the alphabetical default ("OT" before "P1" etc.).
+PERIOD_ORDER = ["P1", "P2", "P3", "OT", "SO"]
+
+
+def _period_label(period_number: int | None, period_type: str | None) -> str:
+    """Collapse (number, type) into a single period bucket. OT/SO break out
+    as their own labels rather than collapsing into 'P4'/'P5'."""
+    if period_type and period_type != "REG":
+        return period_type
+    return f"P{period_number}"
+
+
+def _bucket_small_slices(counts, threshold: float = 0.05):
+    """Fold slices smaller than `threshold` of the total into an 'Other'
+    bucket. Returns a pandas Series sorted by descending count with Other
+    last. Pass the result straight to _pie()."""
+    total = counts.sum()
+    if total == 0:
+        return counts
+    big = counts[counts / total >= threshold].sort_values(ascending=False)
+    other_sum = counts[counts / total < threshold].sum()
+    if other_sum > 0:
+        big["Other"] = other_sum
+    return big
+
 
 def _rink_marker_colors(team: str | None) -> tuple[str, str]:
     """Return (fill, border) for a goal marker on the dark rink. Swaps to
@@ -738,30 +776,53 @@ def main():
     m4.markdown(_metric_card("Goals", str(len(shots)), accent),
                 unsafe_allow_html=True)
 
-    # Rink + table
-    marker_fill, marker_border = _rink_marker_colors(team)
+    # Rink + table. Goals are colored by PERIOD (not by team — team identity
+    # already shows in the metric cards + tracking view) so each marker is
+    # self-describing: at a glance you know when in the game it was scored.
+    # One Scatter trace per period gives us a legend automatically.
+    shots_with_period = shots.copy()
+    shots_with_period["period_label"] = [
+        _period_label(r.period_number, r.period_type)
+        for r in shots.itertuples()
+    ]
     left, right = st.columns([2, 1])
     with left:
         fig = _rink_figure()
-        fig.add_trace(go.Scatter(
-            x=shots["x_coord"], y=shots["y_coord"],
-            mode="markers",
-            marker=dict(
-                size=15, color=marker_fill,
-                line=dict(color=marker_border, width=1.5),
-                symbol="circle",
+        for period in PERIOD_ORDER:
+            sub = shots_with_period[shots_with_period["period_label"] == period]
+            if sub.empty:
+                continue
+            color = PERIOD_COLORS[period]
+            fig.add_trace(go.Scatter(
+                x=sub["x_coord"], y=sub["y_coord"],
+                mode="markers",
+                name=period,
+                marker=dict(
+                    size=15, color=color,
+                    line=dict(color=_text_on(color), width=1.5),
+                    symbol="circle",
+                ),
+                text=[
+                    (
+                        f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                        f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                        f"{' (empty net)' if r.is_empty_net else ''}"
+                    )
+                    for r in sub.itertuples()
+                ],
+                hovertemplate="%{text}<extra></extra>",
+            ))
+        # Inline legend top-right inside the rink.
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(
+                x=0.99, y=0.99, xanchor="right", yanchor="top",
+                bgcolor="rgba(14,29,43,0.7)",
+                bordercolor="#243240", borderwidth=1,
+                font=dict(size=11),
+                itemsizing="constant",
             ),
-            text=[
-                (
-                    f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
-                    f"{r.shot_type or 'unknown'} - {r.strength_state}"
-                    f"{' (empty net)' if r.is_empty_net else ''}"
-                )
-                for r in shots.itertuples()
-            ],
-            hovertemplate="%{text}<extra></extra>",
-            showlegend=False,
-        ))
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with right:
@@ -833,41 +894,42 @@ def main():
     st.markdown("### Breakdowns")
     p1, p2, p3 = st.columns(3)
 
-    # Shot type
-    shot_counts = (shots["shot_type"].fillna("unknown")
-                   .value_counts().sort_values(ascending=False))
+    # Shot type — long tail (8+ categories), bucket the small slices.
+    shot_counts = _bucket_small_slices(
+        shots["shot_type"].fillna("unknown").value_counts()
+    )
     with p1:
         st.plotly_chart(
-            _pie(shot_counts.values.tolist(), shot_counts.index.tolist(), "Shot type"),
+            _pie(shot_counts.values.tolist(), shot_counts.index.tolist(),
+                 "Shot type"),
             use_container_width=True,
         )
 
-    # Period (combine number + type so OT/SO show separately)
-    def _period_label(r):
-        if r.period_type and r.period_type != "REG":
-            return r.period_type
-        return f"P{r.period_number}"
-    period_series = shots.apply(_period_label, axis=1)
-    period_counts = period_series.value_counts()
-    # Stable ordering: P1, P2, P3, OT, SO, anything else after.
-    order = ["P1", "P2", "P3", "OT", "SO"]
-    period_counts = period_counts.reindex(
-        [p for p in order if p in period_counts.index]
-        + [p for p in period_counts.index if p not in order]
+    # Period — combine number + type so OT/SO show separately, then enforce
+    # temporal ordering (P1/P2/P3/OT/SO) rather than alphabetical.
+    period_series = shots.apply(
+        lambda r: _period_label(r.period_number, r.period_type), axis=1,
     )
+    period_counts = period_series.value_counts()
+    period_counts = period_counts.reindex(
+        [p for p in PERIOD_ORDER if p in period_counts.index]
+        + [p for p in period_counts.index if p not in PERIOD_ORDER]
+    )
+    period_counts = _bucket_small_slices(period_counts)
     with p2:
         st.plotly_chart(
-            _pie(period_counts.values.tolist(), period_counts.index.tolist(), "Period"),
+            _pie(period_counts.values.tolist(), period_counts.index.tolist(),
+                 "Period"),
             use_container_width=True,
         )
 
-    # Strength state — break out empty-net goals as their own slice
+    # Strength state — break out empty-net goals as their own slice.
     def _strength_label(r):
         if r.is_empty_net:
             return "EN"
         return r.strength_state or "unknown"
     strength_series = shots.apply(_strength_label, axis=1)
-    strength_counts = strength_series.value_counts()
+    strength_counts = _bucket_small_slices(strength_series.value_counts())
     with p3:
         st.plotly_chart(
             _pie(strength_counts.values.tolist(),
