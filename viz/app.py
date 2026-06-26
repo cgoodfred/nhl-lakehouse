@@ -138,15 +138,22 @@ def _period_label(period_number: int | None, period_type: str | None) -> str:
     return f"P{period_number}"
 
 
-def _bucket_small_slices(counts, threshold: float = 0.05):
+def _bucket_small_slices(counts, threshold: float = 0.05, preserve_order: bool = False):
     """Fold slices smaller than `threshold` of the total into an 'Other'
-    bucket. Returns a pandas Series sorted by descending count with Other
-    last. Pass the result straight to _pie()."""
+    bucket. Returns a pandas Series with Other last.
+
+    preserve_order=True keeps the caller's input ordering — needed when the
+    pie has a meaningful sequence (e.g. P1/P2/P3 in temporal order). Default
+    is descending count, which is what you usually want for a donut so the
+    biggest slice anchors the top."""
     total = counts.sum()
     if total == 0:
         return counts
-    big = counts[counts / total >= threshold].sort_values(ascending=False)
-    other_sum = counts[counts / total < threshold].sum()
+    keep = counts / total >= threshold
+    big = counts[keep]
+    if not preserve_order:
+        big = big.sort_values(ascending=False)
+    other_sum = counts[~keep].sum()
     if other_sum > 0:
         big["Other"] = other_sum
     return big
@@ -360,14 +367,16 @@ def _rink_figure() -> go.Figure:
     return fig
 
 
-def _pie(values: list, labels: list, title: str) -> go.Figure:
+def _pie(values: list, labels: list, title: str, sort: bool = True) -> go.Figure:
     fig = go.Figure(go.Pie(
         values=values, labels=labels,
         hole=0.45,
         textposition="inside",
         textinfo="label+percent",
         marker=dict(line=dict(color="#0e1217", width=2)),
-        sort=True,
+        # Pass sort=False for charts whose category order is meaningful (the
+        # period pie wants P1/P2/P3 in temporal order, not descending count).
+        sort=sort,
     ))
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),
@@ -915,11 +924,11 @@ def main():
         [p for p in PERIOD_ORDER if p in period_counts.index]
         + [p for p in period_counts.index if p not in PERIOD_ORDER]
     )
-    period_counts = _bucket_small_slices(period_counts)
+    period_counts = _bucket_small_slices(period_counts, preserve_order=True)
     with p2:
         st.plotly_chart(
             _pie(period_counts.values.tolist(), period_counts.index.tolist(),
-                 "Period"),
+                 "Period", sort=False),
             use_container_width=True,
         )
 
