@@ -334,6 +334,12 @@ def _rink_shapes() -> list:
             shapes.append(dict(type="circle", x0=x - 1, x1=x + 1,
                                y0=y - 1, y1=y + 1,
                                line=dict(color=LINE_RED), fillcolor=LINE_RED))
+    # Plotly defaults shapes to layer="above", which would draw faceoff
+    # circles, blue lines, and creases ON TOP of player markers + sweater
+    # number text. Force the rink markings below all traces so players
+    # always sit on top of the ice.
+    for s in shapes:
+        s["layer"] = "below"
     return shapes
 
 
