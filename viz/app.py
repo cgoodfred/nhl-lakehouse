@@ -479,12 +479,19 @@ def _tracking_animation(
     init_team, init_puck_x, init_puck_y = _frame_team_data(frames[-1], teams, id_to_name)
     for team in teams:
         d = init_team[team]
+        fill = palette[team]
+        # Sweater numbers go inside the marker — color them whatever's legible
+        # against the fill (black on white-fill away markers, white on the
+        # dark home-team fill). Same logic for the marker border so a white
+        # away marker isn't lost against the rink.
+        text_color = _text_on(fill)
+        border_color = _text_on(fill)
         fig.add_trace(go.Scatter(
             x=d["x"], y=d["y"], mode="markers+text",
-            marker=dict(size=22, color=palette[team],
-                        line=dict(color="white", width=1.5)),
+            marker=dict(size=22, color=fill,
+                        line=dict(color=border_color, width=1.5)),
             text=d["text"], textposition="middle center",
-            textfont=dict(color="white", size=11),
+            textfont=dict(color=text_color, size=11),
             name=team,
             hovertext=d["hover"], hovertemplate="%{hovertext}<extra></extra>",
         ))
