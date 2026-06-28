@@ -42,6 +42,7 @@ Design notes:
 
 Knobs (sparkConf):
   - spark.tracking.retry_transient   bool,  default false
+  - spark.tracking.season            str,   default ""    (empty = all seasons)
   - spark.tracking.rate_per_sec      float, default 2.0
   - spark.tracking.burst             int,   default 5
   - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
@@ -266,20 +267,24 @@ def candidates(
 def merge_attempts(
     existing: DataFrame | None,
     new_df: DataFrame,
-    retry_transient: bool,
 ) -> DataFrame:
     """Combine prior + new attempts into the next current-state snapshot.
 
-    Mirrors the filtering in `candidates`: with retry_transient=True we drop
-    prior transient-failure rows from existing so the union with new_df
-    overwrites them with the fresh attempt result. Without that, the union
-    would put the new success row alongside the old failure row → duplicate
-    (game_id, event_id) keys."""
+    Pure key-based merge: drop any existing row whose (game_id, event_id)
+    appears in new_df (it's being overwritten), then union new_df on.
+    candidates() decides WHICH events get re-fetched (and therefore which
+    keys land in new_df); this function just merges safely.
+
+    An earlier version filtered existing by status — that broke the cross-
+    season case: a season-scoped run with retry_transient=true would drop
+    transient rows from OTHER seasons because they matched the status
+    filter but weren't candidates for the current run. Anti-join by key
+    can't have that failure mode: only rows actually re-attempted are
+    overwritten."""
     if existing is None:
         return new_df
-    preserved = existing
-    if retry_transient:
-        preserved = preserved.filter(~col("status").isin(*TRANSIENT_STATUSES))
+    new_keys  = new_df.select("game_id", "event_id")
+    preserved = existing.join(new_keys, on=["game_id", "event_id"], how="left_anti")
     return preserved.unionByName(new_df)
 
 
@@ -289,12 +294,19 @@ def _read_existing(spark: SparkSession) -> DataFrame | None:
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
-def _read_goals(spark: SparkSession) -> DataFrame:
-    return (
+def _read_goals(spark: SparkSession, season: int | None) -> DataFrame:
+    """Goals with a tracking URL in silver.plays, optionally filtered to one
+    season for staged backfill (CDN load + wall-clock pacing). NHL season
+    codes are start-year + end-year with no separator, e.g. 20252026 for the
+    2025-26 season — same encoding as nhl.silver.plays.season."""
+    df = (
         spark.read.table("nhl.silver.plays")
         .where((col("type_desc_key") == "goal") & col("ppt_replay_url").isNotNull())
         .select("season", "game_id", "event_id", "ppt_replay_url")
     )
+    if season is not None:
+        df = df.where(col("season") == season)
+    return df
 
 
 def _s3_client():
@@ -325,17 +337,20 @@ def main():
     retry_transient = (
         spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
     )
+    season_raw   = spark.conf.get("spark.tracking.season", "").strip()
+    season       = int(season_raw) if season_raw else None
     rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
     burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
     max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
     timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
 
     existing = _read_existing(spark)
-    goals    = _read_goals(spark)
+    goals    = _read_goals(spark, season)
     to_fetch = candidates(existing, goals, retry_transient).collect()
 
     print(
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
+        f"season={season or 'all'}, "
         f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
         f"timeout={timeout_sec}s, candidates={len(to_fetch)}"
     )
@@ -379,7 +394,7 @@ def main():
             print(f"  {i}/{len(to_fetch)} attempted")
 
     new_df   = spark.createDataFrame(attempts, schema=ATTEMPTS_SCHEMA)
-    combined = merge_attempts(existing, new_df, retry_transient)
+    combined = merge_attempts(existing, new_df)
     combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
         .partitionedBy("season").createOrReplace()
 
