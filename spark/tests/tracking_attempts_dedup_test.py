@@ -31,7 +31,7 @@ GOALS_SCHEMA = StructType([
     StructField("ppt_replay_url", StringType()),
 ])
 
-_NOW = dt.datetime(2026, 6, 28, tzinfo=dt.UTC)
+_NOW = dt.datetime(2026, 6, 28, tzinfo=dt.timezone.utc)
 
 
 def _goal(season, game_id, event_id, url=None):

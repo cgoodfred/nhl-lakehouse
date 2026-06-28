@@ -38,7 +38,10 @@ select = [
 # using `datetime.timezone.utc` — `datetime.UTC` doesn't exist until 3.11.
 # Modern annotation syntax (X | None, list[T]) is fine via
 # `from __future__ import annotations` in each job that needs it.
-"jobs/**/*.py" = ["UP017"]
+# Tests get the same exemption so they can mirror the runtime convention
+# without ruff auto-fixing them back to `dt.UTC` and weakening the guardrail.
+"jobs/**/*.py"  = ["UP017"]
+"tests/**/*.py" = ["UP017"]
 
 [tool.ruff.lint.isort]
 # jobs/ subdirs are copied into the image with PYTHONPATH=/opt/jobs, so
