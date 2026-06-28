@@ -267,20 +267,24 @@ def candidates(
 def merge_attempts(
     existing: DataFrame | None,
     new_df: DataFrame,
-    retry_transient: bool,
 ) -> DataFrame:
     """Combine prior + new attempts into the next current-state snapshot.
 
-    Mirrors the filtering in `candidates`: with retry_transient=True we drop
-    prior transient-failure rows from existing so the union with new_df
-    overwrites them with the fresh attempt result. Without that, the union
-    would put the new success row alongside the old failure row → duplicate
-    (game_id, event_id) keys."""
+    Pure key-based merge: drop any existing row whose (game_id, event_id)
+    appears in new_df (it's being overwritten), then union new_df on.
+    candidates() decides WHICH events get re-fetched (and therefore which
+    keys land in new_df); this function just merges safely.
+
+    An earlier version filtered existing by status — that broke the cross-
+    season case: a season-scoped run with retry_transient=true would drop
+    transient rows from OTHER seasons because they matched the status
+    filter but weren't candidates for the current run. Anti-join by key
+    can't have that failure mode: only rows actually re-attempted are
+    overwritten."""
     if existing is None:
         return new_df
-    preserved = existing
-    if retry_transient:
-        preserved = preserved.filter(~col("status").isin(*TRANSIENT_STATUSES))
+    new_keys  = new_df.select("game_id", "event_id")
+    preserved = existing.join(new_keys, on=["game_id", "event_id"], how="left_anti")
     return preserved.unionByName(new_df)
 
 
@@ -390,7 +394,7 @@ def main():
             print(f"  {i}/{len(to_fetch)} attempted")
 
     new_df   = spark.createDataFrame(attempts, schema=ATTEMPTS_SCHEMA)
-    combined = merge_attempts(existing, new_df, retry_transient)
+    combined = merge_attempts(existing, new_df)
     combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
         .partitionedBy("season").createOrReplace()
 
