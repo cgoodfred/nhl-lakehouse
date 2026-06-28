@@ -42,6 +42,7 @@ Design notes:
 
 Knobs (sparkConf):
   - spark.tracking.retry_transient   bool,  default false
+  - spark.tracking.season            str,   default ""    (empty = all seasons)
   - spark.tracking.rate_per_sec      float, default 2.0
   - spark.tracking.burst             int,   default 5
   - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
@@ -289,12 +290,19 @@ def _read_existing(spark: SparkSession) -> DataFrame | None:
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
-def _read_goals(spark: SparkSession) -> DataFrame:
-    return (
+def _read_goals(spark: SparkSession, season: int | None) -> DataFrame:
+    """Goals with a tracking URL in silver.plays, optionally filtered to one
+    season for staged backfill (CDN load + wall-clock pacing). NHL season
+    codes are start-year + end-year with no separator, e.g. 20252026 for the
+    2025-26 season — same encoding as nhl.silver.plays.season."""
+    df = (
         spark.read.table("nhl.silver.plays")
         .where((col("type_desc_key") == "goal") & col("ppt_replay_url").isNotNull())
         .select("season", "game_id", "event_id", "ppt_replay_url")
     )
+    if season is not None:
+        df = df.where(col("season") == season)
+    return df
 
 
 def _s3_client():
@@ -325,17 +333,20 @@ def main():
     retry_transient = (
         spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
     )
+    season_raw   = spark.conf.get("spark.tracking.season", "").strip()
+    season       = int(season_raw) if season_raw else None
     rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
     burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
     max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
     timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
 
     existing = _read_existing(spark)
-    goals    = _read_goals(spark)
+    goals    = _read_goals(spark, season)
     to_fetch = candidates(existing, goals, retry_transient).collect()
 
     print(
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
+        f"season={season or 'all'}, "
         f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
         f"timeout={timeout_sec}s, candidates={len(to_fetch)}"
     )
