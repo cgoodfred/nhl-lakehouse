@@ -233,9 +233,37 @@ def _shots_arrow():
         st.stop()
 
 
+@st.cache_data(ttl=300, show_spinner="Loading tracking status from Iceberg…")
+def _tracking_status_arrow():
+    """Per-goal tracking availability from gold.goal_tracking_status.
+
+    Small table (one row per NHL goal across all seasons, ~120k rows).
+    Loaded into DuckDB alongside `shots` so the goal table can show a
+    per-row status icon + the tracking panel knows whether to read from
+    silver, fall back to live HTTP, or render a clean 'no data' message."""
+    catalog = _catalog()
+    try:
+        return catalog.load_table("gold.goal_tracking_status").scan().to_arrow()
+    except Exception:
+        # Gold table may not exist yet on a fresh deploy — viz still works
+        # via the live-HTTP fallback in that case. Empty Arrow with the
+        # expected column set so the LEFT JOIN below produces all-null
+        # tracking_status / frame_count / error_message → resolved as
+        # 'not_attempted' downstream.
+        import pyarrow as pa
+        return pa.table({
+            "game_id":       pa.array([], type=pa.int64()),
+            "event_id":      pa.array([], type=pa.int64()),
+            "tracking_status": pa.array([], type=pa.string()),
+            "frame_count":   pa.array([], type=pa.int32()),
+            "error_message": pa.array([], type=pa.string()),
+        })
+
+
 def _shots_connection():
     con = duckdb.connect()
     con.register("shots", _shots_arrow())
+    con.register("tracking_status", _tracking_status_arrow())
     return con
 
 
@@ -529,11 +557,87 @@ def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
     )
 
 
-@st.cache_data(ttl=3600, show_spinner="Fetching tracking frames...")
-def _fetch_tracking(url: str):
+@st.cache_data(ttl=3600, show_spinner="Fetching tracking frames from NHL…")
+def _fetch_tracking_http(url: str):
+    """Live fetch from wsr.nhle.com. Fallback path for goals whose tracking
+    hasn't been ingested to silver yet (status='not_attempted') or where
+    the ingest succeeded but silver-tracking-frames hasn't rebuilt
+    (status='pending_silver_rebuild'). Once the backfill is comfortably
+    caught up this path can be removed entirely."""
     resp = requests.get(url, headers=PPT_HEADERS, timeout=10)
     resp.raise_for_status()
     return resp.json()
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading tracking frames from Iceberg…")
+def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
+    """Load tracking frames for one goal from silver.tracking_frames and
+    convert back to the NHL on-the-wire JSON shape that _tracking_animation
+    expects (one dict per frame with `timeStamp` + `onIce` map).
+
+    Filter is partition-pruned on season + key-pruned on (game_id, event_id)
+    so this scans only the relevant Parquet file(s), not the whole 1M-row
+    table."""
+    from pyiceberg.expressions import And, EqualTo
+
+    catalog = _catalog()
+    row_filter = And(
+        EqualTo("season",   season),
+        And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
+    )
+    arrow = (
+        catalog.load_table("silver.tracking_frames")
+        .scan(row_filter=row_filter)
+        .to_arrow()
+    )
+    rows = arrow.to_pylist()
+    # Silver doesn't preserve the upstream onIce dict KEYS — we keep only
+    # the player_id which is what _frame_team_data actually reads. Re-key
+    # by player_id (string-stringified to match the JSON shape). The puck
+    # gets key "1" with the empty-string fields the upstream uses.
+    rows.sort(key=lambda r: r["frame_index"])
+    out = []
+    for r in rows:
+        on_ice = {
+            "1": {
+                "id":            1,
+                "playerId":      "",
+                "x":             r["puck_x_in"],
+                "y":             r["puck_y_in"],
+                "sweaterNumber": "",
+                "teamId":        "",
+                "teamAbbrev":    "",
+            },
+        }
+        for p in r["on_ice"] or []:
+            pid = p["player_id"]
+            on_ice[str(pid)] = {
+                "id":            pid,
+                "playerId":      pid,
+                "x":             p["x_in"],
+                "y":             p["y_in"],
+                "sweaterNumber": p["sweater"],
+                "teamId":        p["team_id"],
+                "teamAbbrev":    p["team_abbrev"],
+            }
+        out.append({"timeStamp": r["timestamp_ds"], "onIce": on_ice})
+    return out
+
+
+# Status → icon mapping for the goal table.
+STATUS_ICONS = {
+    "available":              "▶",
+    "not_tracked":            "⊘",
+    "fetch_failed":           "⚠",
+    "no_url":                 "—",
+    "not_attempted":          "—",
+    "pending_silver_rebuild": "—",
+}
+# Statuses where the tracking panel should attempt to render an animation
+# (either from silver or via the HTTP fallback). Everything else gets a
+# clean text message instead of an animation attempt.
+STATUS_HAS_DATA      = {"available"}
+STATUS_HTTP_FALLBACK = {"not_attempted", "pending_silver_rebuild"}
 
 
 # Tracking-panel storytelling constants.
@@ -1115,14 +1219,19 @@ def main():
             player_b_name = players_b_rows[idx_b][1]
 
     shots = con.execute(
-        f"""SELECT x_coord, y_coord, shot_type, period_number, period_type,
-                   time_in_period, strength_state, is_empty_net,
-                   game_date, home_score, away_score, ppt_replay_url,
-                   player_headshot, home_team_abbrev
-            FROM shots
-            WHERE season = ? AND team_abbrev = ? AND player_id = ? AND {type_pred}
-              AND game_date BETWEEN ? AND ?
-            ORDER BY game_date, period_number, time_in_period""",
+        f"""SELECT s.x_coord, s.y_coord, s.shot_type, s.period_number, s.period_type,
+                   s.time_in_period, s.strength_state, s.is_empty_net,
+                   s.game_date, s.home_score, s.away_score, s.ppt_replay_url,
+                   s.player_headshot, s.home_team_abbrev,
+                   s.game_id, s.event_id,
+                   COALESCE(ts.tracking_status, 'not_attempted') AS tracking_status,
+                   ts.frame_count   AS tracking_frame_count,
+                   ts.error_message AS tracking_error
+            FROM shots s
+            LEFT JOIN tracking_status ts USING (game_id, event_id)
+            WHERE s.season = ? AND s.team_abbrev = ? AND s.player_id = ? AND {type_pred}
+              AND s.game_date BETWEEN ? AND ?
+            ORDER BY s.game_date, s.period_number, s.time_in_period""",
         [season, team, player_id, date_start, date_end],
     ).df()
 
@@ -1282,9 +1391,16 @@ def main():
 
     with right:
         st.markdown("**Goals this season**")
-        st.caption("Click a row to open the tracking view below.")
-        table = shots[["game_date", "period_number", "time_in_period",
-                       "shot_type", "strength_state"]].rename(columns={
+        st.caption(
+            "Click a row to open the tracking view below. "
+            "▶ available · ⊘ no tracking · ⚠ fetch failed · — not yet ingested"
+        )
+        shots_for_table = shots.copy()
+        shots_for_table[""] = shots_for_table["tracking_status"].map(
+            lambda s: STATUS_ICONS.get(s, "?")
+        )
+        table = shots_for_table[["", "game_date", "period_number", "time_in_period",
+                                 "shot_type", "strength_state"]].rename(columns={
             "game_date": "Date",
             "period_number": "P",
             "time_in_period": "Time",
@@ -1312,41 +1428,78 @@ def main():
             f"({sel.shot_type or 'unknown'}, {sel.strength_state})"
         )
         st.markdown(header)
-        if not sel.ppt_replay_url:
+        status = sel.tracking_status
+        # Resolve frames OR a status message. Each branch sets `frames` (a
+        # list of NHL-shaped dicts) on success, otherwise renders its own
+        # message inline and skips the panel.
+        frames = None
+        if status == "no_url":
             st.info("No tracking data attached to this goal.")
-        else:
+        elif status == "not_tracked":
+            st.info(
+                "No tracking data was produced for this goal — likely an "
+                "older game or one played in a non-PPT-equipped arena."
+            )
+        elif status == "fetch_failed":
+            err = sel.tracking_error or "(no error message recorded)"
+            st.warning(
+                f"Tracking fetch failed for this goal — will be retried on "
+                f"the next ingest run with `--retry-transient`.\n\n"
+                f"`{err}`"
+            )
+        elif status == "available":
+            # season comes from the sidebar filter, not the row — every shot
+            # in `shots` matches that filter, so it's the same value either way.
             try:
-                frames = _fetch_tracking(sel.ppt_replay_url)
+                frames = _fetch_tracking_silver(
+                    int(season), int(sel.game_id), int(sel.event_id),
+                )
             except Exception as exc:
                 st.warning(
-                    f"Could not fetch tracking from {sel.ppt_replay_url}\n\n"
+                    f"Could not load tracking frames from silver "
+                    f"(game_id={sel.game_id}, event_id={sel.event_id})\n\n"
                     f"`{exc.__class__.__name__}: {exc}`"
                 )
+        else:
+            # not_attempted or pending_silver_rebuild — fall back to a live
+            # HTTP fetch from wsr.nhle.com so the viz keeps working through
+            # the bronze + silver backfill window.
+            if not sel.ppt_replay_url:
+                st.info("No tracking data attached to this goal.")
             else:
-                id_to_name = _player_id_to_name()
-                home_team = getattr(sel, "home_team_abbrev", None) or None
-                scorer_id = int(player_id) if player_id is not None else None
-                track_col, legend_col = st.columns([3, 1])
-                with track_col:
-                    st.caption(
-                        "Slow / Normal / Fast play the goal sequence; the "
-                        "slider scrubs manually. Defaults to the goal "
-                        "moment (last frame). Scorer marker has a gold "
-                        "ring; gold line is the puck trail (~3s). "
-                        f"Home: **{home_team or '?'}** (in team color), "
-                        "away in white."
+                try:
+                    frames = _fetch_tracking_http(sel.ppt_replay_url)
+                except Exception as exc:
+                    st.warning(
+                        f"Could not fetch tracking from {sel.ppt_replay_url}\n\n"
+                        f"`{exc.__class__.__name__}: {exc}`"
                     )
-                    st.plotly_chart(
-                        _tracking_animation(
-                            frames, id_to_name, home_team, scorer_id,
-                        ),
-                        use_container_width=True,
-                    )
-                with legend_col:
-                    st.markdown("**On-ice players**")
-                    legend = _legend_rows(frames, id_to_name)
-                    st.markdown(_render_legend_html(legend),
-                                unsafe_allow_html=True)
+
+        if frames is not None:
+            id_to_name = _player_id_to_name()
+            home_team = getattr(sel, "home_team_abbrev", None) or None
+            scorer_id = int(player_id) if player_id is not None else None
+            track_col, legend_col = st.columns([3, 1])
+            with track_col:
+                st.caption(
+                    "Slow / Normal / Fast play the goal sequence; the "
+                    "slider scrubs manually. Defaults to the goal "
+                    "moment (last frame). Scorer marker has a gold "
+                    "ring; gold line is the puck trail (~3s). "
+                    f"Home: **{home_team or '?'}** (in team color), "
+                    "away in white."
+                )
+                st.plotly_chart(
+                    _tracking_animation(
+                        frames, id_to_name, home_team, scorer_id,
+                    ),
+                    use_container_width=True,
+                )
+            with legend_col:
+                st.markdown("**On-ice players**")
+                legend = _legend_rows(frames, id_to_name)
+                st.markdown(_render_legend_html(legend),
+                            unsafe_allow_html=True)
 
     # Breakdowns
     st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",

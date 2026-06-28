@@ -107,3 +107,7 @@ spec:
     "spark.sql.shuffle.partitions": "16"
     "spark.sql.session.timeZone": "UTC"
     "spark.kubernetes.memoryOverheadFactor": "0.4"
+    # Disable dynamic allocation — manifests pin executor.instances explicitly
+    # and the operator otherwise spams exec-spawn-rejected errors against the
+    # namespace CPU quota when it tries to scale beyond what was reserved.
+    "spark.dynamicAllocation.enabled": "false"
