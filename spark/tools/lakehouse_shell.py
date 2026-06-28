@@ -65,6 +65,7 @@ TABLES = [
     ("silver", "players"),
     ("silver", "game_rosters"),
     ("silver", "teams"),
+    ("silver", "tracking_attempts"),
     ("gold", "player_shots"),
 ]
 
@@ -140,7 +141,7 @@ def _exec_duckdb_cli() -> None:
         sys.exit(1)
     print(f"\nopening duckdb shell against {DB_PATH}")
     print("tables: silver.games, silver.plays, silver.players, silver.game_rosters,")
-    print("        silver.teams, gold.player_shots")
+    print("        silver.teams, silver.tracking_attempts, gold.player_shots")
     print("type `.tables` to list, `.schema <table>` to inspect, Ctrl-D to quit.\n")
     os.execvp(cli, [cli, str(DB_PATH)])
 
