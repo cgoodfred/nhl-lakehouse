@@ -252,6 +252,7 @@ def _tracking_status_arrow():
         # 'not_attempted' downstream.
         import pyarrow as pa
         return pa.table({
+            "season":        pa.array([], type=pa.int32()),
             "game_id":       pa.array([], type=pa.int64()),
             "event_id":      pa.array([], type=pa.int64()),
             "tracking_status": pa.array([], type=pa.string()),
@@ -1228,7 +1229,10 @@ def main():
                    ts.frame_count   AS tracking_frame_count,
                    ts.error_message AS tracking_error
             FROM shots s
-            LEFT JOIN tracking_status ts USING (game_id, event_id)
+            LEFT JOIN tracking_status ts
+              ON  s.season   = ts.season
+              AND s.game_id  = ts.game_id
+              AND s.event_id = ts.event_id
             WHERE s.season = ? AND s.team_abbrev = ? AND s.player_id = ? AND {type_pred}
               AND s.game_date BETWEEN ? AND ?
             ORDER BY s.game_date, s.period_number, s.time_in_period""",
