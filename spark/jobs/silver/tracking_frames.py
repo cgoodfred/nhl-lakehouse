@@ -131,8 +131,12 @@ def transform_tracking_frames(raw: DataFrame) -> DataFrame:
         .withColumn("puck_y_ft", (puck_y - lit(PPT_CENTER_Y_IN)) / lit(PPT_INCHES_PER_FT))
         .withColumn("on_ice",    expr(on_ice_expr))
         .select(
-            col("game_id"),
-            col("event_id"),
+            # Partition-discovered game_id/event_id come through as IntegerType
+            # (the values fit in int32). Cast to long for schema parity with
+            # silver.plays.{game_id,event_id} so joins land cleanly without
+            # implicit widening per row.
+            col("game_id").cast("long").alias("game_id"),
+            col("event_id").cast("long").alias("event_id"),
             col("season"),
             col("frame_index").cast("int").alias("frame_index"),
             col("timeStamp").cast("long").alias("timestamp_ds"),
@@ -151,8 +155,9 @@ def main() -> None:
     raw = (
         spark.read
         .option("multiLine", "true")
+        .option("basePath", BRONZE_PATH)  # not a .json() kwarg in PySpark
         .schema(BRONZE_FRAME_SCHEMA)
-        .json(BRONZE_GLOB, basePath=BRONZE_PATH)
+        .json(BRONZE_GLOB)
     )
 
     out = transform_tracking_frames(raw)
