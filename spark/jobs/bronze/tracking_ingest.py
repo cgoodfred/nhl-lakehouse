@@ -33,7 +33,7 @@ Design notes:
     bucket at 2 req/s sustained, burst 5; on 429 we honor Retry-After when
     present, otherwise exponential backoff 1s→2s→4s→...→60s cap, max 6
     in-request retries. Persistent 429 falls through to status='http_other'
-    so the next job run (with or without --retry-transient) can pick it up.
+    so the next job run with --retry-transient can pick it up.
 
   * Python 3.8 in the apache/spark:3.5.7-python3 base image: NO `X | None`,
     `datetime.UTC`, or `list[T]` runtime expressions. We use
