@@ -3,7 +3,14 @@ name = "nhl-lakehouse-spark"
 version = "0.1.0"
 description = "PySpark transformations producing silver and gold Iceberg tables."
 requires-python = ">=3.12"
-dependencies = ["pyspark==3.5.7"]
+dependencies = [
+    "pyspark==3.5.7",
+    # bronze.tracking_ingest fetches tracking JSON from wsr.nhle.com (requests)
+    # and writes it to SeaweedFS (boto3). Existing JVM-side s3a configs don't
+    # apply to a Python boto3 client, so this job carries its own HTTP/S3 stack.
+    "requests==2.32.3",
+    "boto3==1.35.36",
+]
 
 [dependency-groups]
 dev = [
@@ -31,7 +38,7 @@ select = [
 # do `from games import ...` (silver/* on sys.path via conftest). Declare
 # the module names explicitly so isort groups them as first-party rather
 # than alphabetizing them in with pyspark.
-known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots"]
+known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots", "tracking_ingest"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
