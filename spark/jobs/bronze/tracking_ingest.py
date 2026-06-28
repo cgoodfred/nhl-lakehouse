@@ -47,6 +47,7 @@ Knobs (sparkConf):
   - spark.tracking.burst             int,   default 5
   - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
   - spark.tracking.timeout_sec       int,   default 30
+  - spark.tracking.flush_every       int,   default 500 (attempts-table flush cadence)
 """
 
 from __future__ import annotations
@@ -113,6 +114,13 @@ DEFAULT_BURST        = 5
 DEFAULT_MAX_RETRIES  = 6
 MAX_BACKOFF_SEC      = 60.0
 DEFAULT_TIMEOUT_SEC  = 30
+# Periodic flushes of the attempts table during the fetch loop. Each flush
+# triggers a catalog operation that refreshes the Lakekeeper OAuth2 token
+# (otherwise idle for the entire fetch window — long runs would hit
+# NotAuthorizedException at the final write when the token expires mid-loop).
+# Also caps blast radius: a catalog blip mid-loop only loses the unflushed
+# tail, not the whole 75-min run.
+DEFAULT_FLUSH_EVERY  = 500
 
 
 class TokenBucket:
@@ -320,6 +328,21 @@ def _s3_client():
     )
 
 
+def _flush(spark: SparkSession, existing: DataFrame | None, batch: list) -> DataFrame:
+    """Merge `batch` into the current-state attempts table and re-read it.
+
+    Returns the post-write DataFrame so the next batch's merge sees the
+    latest state. Each flush is a full createOrReplace of the (small)
+    attempts table — cheap at this scale and atomic from a reader's POV.
+    The implicit catalog operation also refreshes the OAuth2 token, which
+    is the load-bearing reason this exists."""
+    new_df   = spark.createDataFrame(batch, schema=ATTEMPTS_SCHEMA)
+    combined = merge_attempts(existing, new_df)
+    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
+        .partitionedBy("season").createOrReplace()
+    return spark.read.table("nhl.silver.tracking_attempts")
+
+
 def _object_key(season: int, game_id: int, event_id: int) -> str:
     # event_id is a DIRECTORY (event_id=NNN/), not a filename suffix.
     # Spark partition discovery only picks up directory segments, so silver's
@@ -343,6 +366,7 @@ def main():
     burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
     max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
     timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
+    flush_every  = int(  spark.conf.get("spark.tracking.flush_every",  str(DEFAULT_FLUSH_EVERY)))
 
     existing = _read_existing(spark)
     goals    = _read_goals(spark, season)
@@ -352,7 +376,8 @@ def main():
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
         f"season={season or 'all'}, "
         f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
-        f"timeout={timeout_sec}s, candidates={len(to_fetch)}"
+        f"timeout={timeout_sec}s, flush_every={flush_every}, "
+        f"candidates={len(to_fetch)}"
     )
     if not to_fetch:
         print("bronze-tracking-ingest: nothing to fetch")
@@ -360,7 +385,7 @@ def main():
 
     s3      = _s3_client()
     limiter = TokenBucket(rate_per_sec, burst)
-    attempts: list[dict] = []
+    batch: list = []
     for i, row in enumerate(to_fetch, start=1):
         result = fetch_tracking(
             row.ppt_replay_url, PPT_HEADERS,
@@ -389,14 +414,20 @@ def main():
             )
             attempt["source_object_key"] = key
             attempt["frame_count"]       = result.frame_count
-        attempts.append(attempt)
+        batch.append(attempt)
         if i % 100 == 0 or i == len(to_fetch):
             print(f"  {i}/{len(to_fetch)} attempted")
+        if i % flush_every == 0:
+            existing = _flush(spark, existing, batch)
+            print(f"  flushed {len(batch)} attempts to silver.tracking_attempts")
+            batch = []
 
-    new_df   = spark.createDataFrame(attempts, schema=ATTEMPTS_SCHEMA)
-    combined = merge_attempts(existing, new_df)
-    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
-        .partitionedBy("season").createOrReplace()
+    # Tail flush for any attempts since the last batched flush. Skip entirely
+    # if the last iteration above already flushed (i.e. len(to_fetch) was an
+    # exact multiple of flush_every).
+    if batch:
+        _flush(spark, existing, batch)
+        print(f"  flushed {len(batch)} attempts to silver.tracking_attempts (tail)")
 
     summary = (
         spark.read.table("nhl.silver.tracking_attempts")

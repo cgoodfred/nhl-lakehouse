@@ -120,3 +120,8 @@ spec:
     "spark.tracking.burst":           "5"
     "spark.tracking.max_retries":     "6"
     "spark.tracking.timeout_sec":     "30"
+    # Flush the attempts table every N events during the fetch loop. Keeps
+    # the Lakekeeper OAuth2 token from idling out over a long run AND limits
+    # how much progress we lose if a write later fails. 500 → ~4 min between
+    # flushes at 2 req/s, well under any reasonable token lifetime.
+    "spark.tracking.flush_every":     "500"
