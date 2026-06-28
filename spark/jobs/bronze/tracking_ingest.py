@@ -42,10 +42,12 @@ Design notes:
 
 Knobs (sparkConf):
   - spark.tracking.retry_transient   bool,  default false
+  - spark.tracking.season            str,   default ""    (empty = all seasons)
   - spark.tracking.rate_per_sec      float, default 2.0
   - spark.tracking.burst             int,   default 5
   - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
   - spark.tracking.timeout_sec       int,   default 30
+  - spark.tracking.flush_every       int,   default 500 (attempts-table flush cadence)
 """
 
 from __future__ import annotations
@@ -112,6 +114,13 @@ DEFAULT_BURST        = 5
 DEFAULT_MAX_RETRIES  = 6
 MAX_BACKOFF_SEC      = 60.0
 DEFAULT_TIMEOUT_SEC  = 30
+# Periodic flushes of the attempts table during the fetch loop. Each flush
+# triggers a catalog operation that refreshes the Lakekeeper OAuth2 token
+# (otherwise idle for the entire fetch window — long runs would hit
+# NotAuthorizedException at the final write when the token expires mid-loop).
+# Also caps blast radius: a catalog blip mid-loop only loses the unflushed
+# tail, not the whole 75-min run.
+DEFAULT_FLUSH_EVERY  = 500
 
 
 class TokenBucket:
@@ -266,20 +275,24 @@ def candidates(
 def merge_attempts(
     existing: DataFrame | None,
     new_df: DataFrame,
-    retry_transient: bool,
 ) -> DataFrame:
     """Combine prior + new attempts into the next current-state snapshot.
 
-    Mirrors the filtering in `candidates`: with retry_transient=True we drop
-    prior transient-failure rows from existing so the union with new_df
-    overwrites them with the fresh attempt result. Without that, the union
-    would put the new success row alongside the old failure row → duplicate
-    (game_id, event_id) keys."""
+    Pure key-based merge: drop any existing row whose (game_id, event_id)
+    appears in new_df (it's being overwritten), then union new_df on.
+    candidates() decides WHICH events get re-fetched (and therefore which
+    keys land in new_df); this function just merges safely.
+
+    An earlier version filtered existing by status — that broke the cross-
+    season case: a season-scoped run with retry_transient=true would drop
+    transient rows from OTHER seasons because they matched the status
+    filter but weren't candidates for the current run. Anti-join by key
+    can't have that failure mode: only rows actually re-attempted are
+    overwritten."""
     if existing is None:
         return new_df
-    preserved = existing
-    if retry_transient:
-        preserved = preserved.filter(~col("status").isin(*TRANSIENT_STATUSES))
+    new_keys  = new_df.select("game_id", "event_id")
+    preserved = existing.join(new_keys, on=["game_id", "event_id"], how="left_anti")
     return preserved.unionByName(new_df)
 
 
@@ -289,12 +302,19 @@ def _read_existing(spark: SparkSession) -> DataFrame | None:
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
-def _read_goals(spark: SparkSession) -> DataFrame:
-    return (
+def _read_goals(spark: SparkSession, season: int | None) -> DataFrame:
+    """Goals with a tracking URL in silver.plays, optionally filtered to one
+    season for staged backfill (CDN load + wall-clock pacing). NHL season
+    codes are start-year + end-year with no separator, e.g. 20252026 for the
+    2025-26 season — same encoding as nhl.silver.plays.season."""
+    df = (
         spark.read.table("nhl.silver.plays")
         .where((col("type_desc_key") == "goal") & col("ppt_replay_url").isNotNull())
         .select("season", "game_id", "event_id", "ppt_replay_url")
     )
+    if season is not None:
+        df = df.where(col("season") == season)
+    return df
 
 
 def _s3_client():
@@ -306,6 +326,21 @@ def _s3_client():
         "s3",
         config=Config(s3={"addressing_style": "path"}),
     )
+
+
+def _flush(spark: SparkSession, existing: DataFrame | None, batch: list) -> DataFrame:
+    """Merge `batch` into the current-state attempts table and re-read it.
+
+    Returns the post-write DataFrame so the next batch's merge sees the
+    latest state. Each flush is a full createOrReplace of the (small)
+    attempts table — cheap at this scale and atomic from a reader's POV.
+    The implicit catalog operation also refreshes the OAuth2 token, which
+    is the load-bearing reason this exists."""
+    new_df   = spark.createDataFrame(batch, schema=ATTEMPTS_SCHEMA)
+    combined = merge_attempts(existing, new_df)
+    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
+        .partitionedBy("season").createOrReplace()
+    return spark.read.table("nhl.silver.tracking_attempts")
 
 
 def _object_key(season: int, game_id: int, event_id: int) -> str:
@@ -325,19 +360,24 @@ def main():
     retry_transient = (
         spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
     )
+    season_raw   = spark.conf.get("spark.tracking.season", "").strip()
+    season       = int(season_raw) if season_raw else None
     rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
     burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
     max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
     timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
+    flush_every  = int(  spark.conf.get("spark.tracking.flush_every",  str(DEFAULT_FLUSH_EVERY)))
 
     existing = _read_existing(spark)
-    goals    = _read_goals(spark)
+    goals    = _read_goals(spark, season)
     to_fetch = candidates(existing, goals, retry_transient).collect()
 
     print(
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
+        f"season={season or 'all'}, "
         f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
-        f"timeout={timeout_sec}s, candidates={len(to_fetch)}"
+        f"timeout={timeout_sec}s, flush_every={flush_every}, "
+        f"candidates={len(to_fetch)}"
     )
     if not to_fetch:
         print("bronze-tracking-ingest: nothing to fetch")
@@ -345,7 +385,7 @@ def main():
 
     s3      = _s3_client()
     limiter = TokenBucket(rate_per_sec, burst)
-    attempts: list[dict] = []
+    batch: list = []
     for i, row in enumerate(to_fetch, start=1):
         result = fetch_tracking(
             row.ppt_replay_url, PPT_HEADERS,
@@ -374,14 +414,20 @@ def main():
             )
             attempt["source_object_key"] = key
             attempt["frame_count"]       = result.frame_count
-        attempts.append(attempt)
+        batch.append(attempt)
         if i % 100 == 0 or i == len(to_fetch):
             print(f"  {i}/{len(to_fetch)} attempted")
+        if i % flush_every == 0:
+            existing = _flush(spark, existing, batch)
+            print(f"  flushed {len(batch)} attempts to silver.tracking_attempts")
+            batch = []
 
-    new_df   = spark.createDataFrame(attempts, schema=ATTEMPTS_SCHEMA)
-    combined = merge_attempts(existing, new_df, retry_transient)
-    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
-        .partitionedBy("season").createOrReplace()
+    # Tail flush for any attempts since the last batched flush. Skip entirely
+    # if the last iteration above already flushed (i.e. len(to_fetch) was an
+    # exact multiple of flush_every).
+    if batch:
+        _flush(spark, existing, batch)
+        print(f"  flushed {len(batch)} attempts to silver.tracking_attempts (tail)")
 
     summary = (
         spark.read.table("nhl.silver.tracking_attempts")

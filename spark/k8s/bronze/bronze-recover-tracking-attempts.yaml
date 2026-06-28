@@ -1,7 +1,7 @@
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
-  name: bronze-tracking-ingest
+  name: bronze-recover-tracking-attempts
   namespace: lakehouse
 spec:
   type: Python
@@ -9,15 +9,11 @@ spec:
   mode: cluster
   image: ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
   imagePullPolicy: Always
-  mainApplicationFile: local:///opt/jobs/bronze/tracking_ingest.py
+  mainApplicationFile: local:///opt/jobs/bronze/recover_attempts_from_bronze.py
   sparkVersion: "3.5.7"
   restartPolicy:
     type: Never
 
-  # I/O-bound serial fetch loop runs on the driver; executors do nothing
-  # useful here (one createDataFrame call + one short shuffle for the write).
-  # Keep them around as 1×1c/1g so SparkSession bootstrap works as expected
-  # rather than fighting the operator's executor-count assumptions.
   driver:
     cores: 2
     coreLimit: "2"
@@ -36,8 +32,6 @@ spec:
             key: secret_key
       - name: AWS_REGION
         value: "us-east-1"
-      # boto3 in the job picks up AWS_ENDPOINT_URL_S3 automatically — the
-      # JVM-side spark.hadoop.fs.s3a.* configs don't propagate to it.
       - name: AWS_ENDPOINT_URL_S3
         value: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
       - name: LAKEKEEPER_CLIENT_ID
@@ -105,23 +99,6 @@ spec:
     "spark.sql.session.timeZone": "UTC"
     "spark.kubernetes.memoryOverheadFactor": "0.4"
 
-    # Job-specific knobs — read in main() via spark.conf.get(...). Override
-    # by editing this manifest before kubectl apply. Rate-limit defaults
-    # mirror the Go ingest's NHL client: 2 req/s sustained with burst 5,
-    # 6 in-request 429 retries with exponential backoff to 60s.
-    #
-    # spark.tracking.season filters candidates to one NHL season for staged
-    # backfill. Format is start-year + end-year (no separator), matching
-    # silver.plays.season: "20252026" = 2025-26 season. Empty string = all
-    # seasons (any goal in silver.plays with a ppt_replay_url is a candidate).
-    "spark.tracking.retry_transient": "false"
-    "spark.tracking.season":          "20252026"
-    "spark.tracking.rate_per_sec":    "2.0"
-    "spark.tracking.burst":           "5"
-    "spark.tracking.max_retries":     "6"
-    "spark.tracking.timeout_sec":     "30"
-    # Flush the attempts table every N events during the fetch loop. Keeps
-    # the Lakekeeper OAuth2 token from idling out over a long run AND limits
-    # how much progress we lose if a write later fails. 500 → ~4 min between
-    # flushes at 2 req/s, well under any reasonable token lifetime.
-    "spark.tracking.flush_every":     "500"
+    # Set to a NHL season code (e.g. "20252026") to scope recovery to one
+    # season. Empty = recover everything currently in bronze.
+    "spark.tracking.season": "20252026"

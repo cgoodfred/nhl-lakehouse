@@ -125,7 +125,7 @@ def test_merge_first_run_returns_new(spark):
     new = _attempts(spark, [
         _attempt(20242025, 2024020001, 100, "success", 200, 140),
     ])
-    result = merge_attempts(existing=None, new_df=new, retry_transient=False)
+    result = merge_attempts(existing=None, new_df=new)
     assert result.count() == 1
 
 
@@ -139,26 +139,27 @@ def test_merge_preserves_existing_and_no_duplicates(spark):
     new = _attempts(spark, [
         _attempt(20242025, 2024020002, 100, "success", 200, 130),
     ])
-    result = merge_attempts(existing=existing, new_df=new, retry_transient=False)
+    result = merge_attempts(existing=existing, new_df=new)
     keys = sorted((r.game_id, r.event_id) for r in result.collect())
     assert keys == [(2024020001, 100), (2024020001, 200), (2024020002, 100)]
     # Critical: no duplicates of the existing rows.
     assert len(keys) == len(set(keys))
 
 
-def test_merge_retry_transient_overwrites_failure_rows(spark):
+def test_merge_overwrites_same_key_rows(spark):
+    # candidates() would have re-included event 200 (a transient failure
+    # under retry_transient=True), so `new` contains its fresh attempt.
+    # merge_attempts must drop the OLD (200, fetch_error) row before
+    # unioning, otherwise we'd end up with two rows keyed (2024020001, 200)
+    # — one success, one error.
     existing = _attempts(spark, [
         _attempt(20242025, 2024020001, 100, "success",     200, 140),
         _attempt(20242025, 2024020001, 200, "fetch_error", None, error="timeout"),
     ])
-    # candidates(retry_transient=True) would have re-included event 200, so
-    # `new` contains its fresh attempt. merge_attempts(retry_transient=True)
-    # must drop the OLD (200, fetch_error) row before unioning, otherwise we
-    # end up with two rows keyed (2024020001, 200) — one success, one error.
     new = _attempts(spark, [
         _attempt(20242025, 2024020001, 200, "success", 200, 135),
     ])
-    result = merge_attempts(existing=existing, new_df=new, retry_transient=True)
+    result = merge_attempts(existing=existing, new_df=new)
     rows = {(r.game_id, r.event_id): r.status for r in result.collect()}
     assert rows == {
         (2024020001, 100): "success",
@@ -166,17 +167,50 @@ def test_merge_retry_transient_overwrites_failure_rows(spark):
     }
 
 
-def test_merge_retry_transient_does_not_drop_404_or_success(spark):
-    # http_404 and success are NEVER candidates for retry; they survive
-    # untouched even when retry_transient=True.
+def test_merge_with_empty_new_df_preserves_all_existing(spark):
+    # An empty re-run (every candidate already attempted) must leave the
+    # current-state table untouched. The previous status-filter version would
+    # have dropped http_other / fetch_error / invalid_payload rows here even
+    # though no fresh attempts were made for them.
     existing = _attempts(spark, [
-        _attempt(20242025, 2024020001, 100, "success",  200, 140),
-        _attempt(20242025, 2024020001, 200, "http_404", 404),
+        _attempt(20242025, 2024020001, 100, "success",         200, 140),
+        _attempt(20242025, 2024020001, 200, "http_404",        404),
+        _attempt(20242025, 2024020001, 300, "fetch_error",     None, error="timeout"),
+        _attempt(20242025, 2024020001, 400, "invalid_payload", 200,  error="not a list"),
     ])
-    new = _attempts(spark, [])  # nothing to add — empty re-run with retry on
-    result = merge_attempts(existing=existing, new_df=new, retry_transient=True)
+    new = _attempts(spark, [])
+    result = merge_attempts(existing=existing, new_df=new)
     rows = {(r.game_id, r.event_id): r.status for r in result.collect()}
     assert rows == {
         (2024020001, 100): "success",
         (2024020001, 200): "http_404",
+        (2024020001, 300): "fetch_error",
+        (2024020001, 400): "invalid_payload",
+    }
+
+
+def test_merge_preserves_other_season_transient_rows_during_scoped_retry(spark):
+    # The cross-season regression caught in review of PR #60: a
+    # season-scoped retry run filtered goals to the new season, so new_df
+    # only had new-season keys. The status-filter merge_attempts would
+    # still drop transient rows from OTHER seasons — they were filtered
+    # out of `preserved` by status, never unioned back. Anti-join by key
+    # can't have this failure mode: rows whose key isn't in new_df survive
+    # untouched.
+    existing = _attempts(spark, [
+        # Older season has a transient row that's outside this run's scope.
+        _attempt(20242025, 2024020055, 273, "fetch_error", None, error="timeout"),
+        # Current-season-scope row that the retry IS re-attempting.
+        _attempt(20252026, 2025020001, 100, "fetch_error", None, error="timeout"),
+    ])
+    # The job (with spark.tracking.season=20252026, retry_transient=true)
+    # only re-attempts the in-scope event. new_df has just the new key.
+    new = _attempts(spark, [
+        _attempt(20252026, 2025020001, 100, "success", 200, 142),
+    ])
+    result = merge_attempts(existing=existing, new_df=new)
+    rows = {(r.game_id, r.event_id): r.status for r in result.collect()}
+    assert rows == {
+        (2024020055, 273):  "fetch_error",   # survives — out of scope this run
+        (2025020001, 100):  "success",       # overwritten — was re-attempted
     }
