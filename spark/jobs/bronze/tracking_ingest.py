@@ -29,14 +29,23 @@ Design notes:
     Iceberg uses, not to a Python boto3 client. SeaweedFS-compat options are
     set explicitly in _s3_client().
 
+  * Rate limit + 429 backoff mirror ingest/internal/nhl/client.go: token
+    bucket at 2 req/s sustained, burst 5; on 429 we honor Retry-After when
+    present, otherwise exponential backoff 1s→2s→4s→...→60s cap, max 6
+    in-request retries. Persistent 429 falls through to status='http_other'
+    so the next job run (with or without --retry-transient) can pick it up.
+
   * Python 3.8 in the apache/spark:3.5.7-python3 base image: NO `X | None`,
     `datetime.UTC`, or `list[T]` runtime expressions. We use
     `from __future__ import annotations` to keep modern syntax in TYPE hints
     only (lazy-evaluated, never run); runtime expressions stay 3.8-compatible.
 
 Knobs (sparkConf):
-  - spark.tracking.retry_transient    bool, default false
-  - spark.tracking.request_delay_ms   int,  default 150
+  - spark.tracking.retry_transient   bool,  default false
+  - spark.tracking.rate_per_sec      float, default 2.0
+  - spark.tracking.burst             int,   default 5
+  - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
+  - spark.tracking.timeout_sec       int,   default 30
 """
 
 from __future__ import annotations
@@ -96,6 +105,56 @@ ATTEMPTS_SCHEMA = StructType([
 # later may get the real JSON.
 TRANSIENT_STATUSES = ("http_other", "fetch_error", "invalid_payload")
 
+# Rate-limit / backoff defaults — mirror the Go ingest client (2 req/s sustained,
+# burst 5, 6 retries on 429, exponential 1s→60s).
+DEFAULT_RATE_PER_SEC = 2.0
+DEFAULT_BURST        = 5
+DEFAULT_MAX_RETRIES  = 6
+MAX_BACKOFF_SEC      = 60.0
+DEFAULT_TIMEOUT_SEC  = 30
+
+
+class TokenBucket:
+    """Single-threaded token-bucket rate limiter.
+
+    Mirrors golang.org/x/time/rate semantics for the driver's serial fetch
+    loop: tokens refill continuously at `rate_per_sec`; `wait()` consumes
+    one token, sleeping if the bucket is empty. Burst lets the first N
+    requests fly without waiting before settling to the sustained rate."""
+
+    def __init__(self, rate_per_sec: float, burst: int, _clock=time.monotonic):
+        self.rate     = float(rate_per_sec)
+        self.capacity = float(burst)
+        self.tokens   = float(burst)
+        self._clock   = _clock
+        self._last    = _clock()
+
+    def wait(self, _sleep=time.sleep) -> None:
+        now = self._clock()
+        self.tokens = min(self.capacity, self.tokens + (now - self._last) * self.rate)
+        self._last = now
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return
+        sleep_for = (1.0 - self.tokens) / self.rate
+        _sleep(sleep_for)
+        self._last  = self._clock()
+        self.tokens = 0.0
+
+
+def backoff_delay(attempt: int, retry_after: str | None) -> float:
+    """Seconds to wait before the next 429 retry. Honors Retry-After when
+    present (NHL CDN sends seconds, not HTTP-date), else exponential
+    1, 2, 4, 8, 16, 32, 60, 60... capped at MAX_BACKOFF_SEC."""
+    if retry_after:
+        try:
+            secs = int(retry_after)
+            if secs > 0:
+                return float(secs)
+        except ValueError:
+            pass
+    return min(MAX_BACKOFF_SEC, float(1 << attempt))
+
 
 @dataclass
 class FetchResult:
@@ -107,46 +166,78 @@ class FetchResult:
     error: str | None
 
 
-def fetch_tracking(url: str, headers: dict, timeout: int = 10) -> FetchResult:
-    """Single HTTP fetch + payload validation. No retries — re-run the job
-    with --retry-transient for that.
+def fetch_tracking(
+    url: str,
+    headers: dict,
+    limiter: TokenBucket | None = None,
+    timeout: int = DEFAULT_TIMEOUT_SEC,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    backoff_fn=backoff_delay,
+    _sleep=time.sleep,
+) -> FetchResult:
+    """Single logical fetch (with internal 429 retries) + payload validation.
+
+    Cross-RUN retries (transient failures retried by re-running the job) are
+    a different concern handled by --retry-transient. This function's retry
+    loop is only for in-request 429s, where the upstream is asking us to
+    slow down for a moment and a longer-term retry would be wasteful.
 
     A 200 status is NOT trusted on its own: the upstream CDN occasionally
-    returns a 200 with a Cloudflare challenge page or an unrelated HTML
-    response. We parse the body and require a non-empty top-level JSON list
-    (the tracking payload shape) before reporting success. Anything else at
-    200 becomes 'invalid_payload' so we don't write garbage to bronze."""
-    try:
-        resp = requests.get(url, headers=headers, timeout=timeout)
-    except requests.RequestException as exc:
-        return FetchResult(
-            "fetch_error", None, None, None, f"{type(exc).__name__}: {exc}",
-        )
-    if resp.status_code == 404:
-        return FetchResult("http_404", 404, None, None, None)
-    if resp.status_code != 200:
-        return FetchResult(
-            "http_other", resp.status_code, None, None, resp.text[:200],
-        )
-    # 200 — parse + validate before reporting success.
-    try:
-        parsed = json.loads(resp.content)
-    except (ValueError, UnicodeDecodeError) as exc:
-        return FetchResult(
-            "invalid_payload", 200, None, None,
-            f"JSON parse: {type(exc).__name__}: {exc}",
-        )
-    if not isinstance(parsed, list):
-        return FetchResult(
-            "invalid_payload", 200, None, None,
-            f"expected top-level list, got {type(parsed).__name__}",
-        )
-    if not parsed:
-        return FetchResult(
-            "invalid_payload", 200, None, None,
-            "expected non-empty list, got empty list",
-        )
-    return FetchResult("success", 200, resp.content, len(parsed), None)
+    returns a 200 with a Cloudflare challenge page or unrelated HTML. We
+    parse the body and require a non-empty top-level JSON list before
+    reporting success."""
+    for attempt in range(max_retries + 1):
+        if limiter is not None:
+            limiter.wait()
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+        except requests.RequestException as exc:
+            return FetchResult(
+                "fetch_error", None, None, None, f"{type(exc).__name__}: {exc}",
+            )
+
+        if resp.status_code == 429:
+            if attempt < max_retries:
+                _sleep(backoff_fn(attempt, resp.headers.get("Retry-After")))
+                continue
+            # Exhausted in-request retries; surface an ops-useful message
+            # instead of the (often empty) 429 body. Re-runs with
+            # --retry-transient will still pick this up since http_other is
+            # in TRANSIENT_STATUSES.
+            return FetchResult(
+                "http_other", 429, None, None,
+                f"exhausted {max_retries} retries on 429",
+            )
+
+        if resp.status_code == 404:
+            return FetchResult("http_404", 404, None, None, None)
+        if resp.status_code != 200:
+            return FetchResult(
+                "http_other", resp.status_code, None, None, resp.text[:200],
+            )
+        # 200 — parse + validate before reporting success.
+        try:
+            parsed = json.loads(resp.content)
+        except (ValueError, UnicodeDecodeError) as exc:
+            return FetchResult(
+                "invalid_payload", 200, None, None,
+                f"JSON parse: {type(exc).__name__}: {exc}",
+            )
+        if not isinstance(parsed, list):
+            return FetchResult(
+                "invalid_payload", 200, None, None,
+                f"expected top-level list, got {type(parsed).__name__}",
+            )
+        if not parsed:
+            return FetchResult(
+                "invalid_payload", 200, None, None,
+                "expected non-empty list, got empty list",
+            )
+        return FetchResult("success", 200, resp.content, len(parsed), None)
+
+    # Unreachable — every code path inside the loop either returns or
+    # continues, and the continue path is gated by attempt < max_retries.
+    raise RuntimeError("fetch_tracking loop exited without returning")
 
 
 def candidates(
@@ -234,7 +325,10 @@ def main():
     retry_transient = (
         spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
     )
-    request_delay_ms = int(spark.conf.get("spark.tracking.request_delay_ms", "150"))
+    rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
+    burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
+    max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
+    timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
 
     existing = _read_existing(spark)
     goals    = _read_goals(spark)
@@ -242,16 +336,21 @@ def main():
 
     print(
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
-        f"candidates={len(to_fetch)}"
+        f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
+        f"timeout={timeout_sec}s, candidates={len(to_fetch)}"
     )
     if not to_fetch:
         print("bronze-tracking-ingest: nothing to fetch")
         return
 
-    s3 = _s3_client()
+    s3      = _s3_client()
+    limiter = TokenBucket(rate_per_sec, burst)
     attempts: list[dict] = []
     for i, row in enumerate(to_fetch, start=1):
-        result = fetch_tracking(row.ppt_replay_url, PPT_HEADERS)
+        result = fetch_tracking(
+            row.ppt_replay_url, PPT_HEADERS,
+            limiter=limiter, timeout=timeout_sec, max_retries=max_retries,
+        )
         attempt = {
             "game_id":           row.game_id,
             "event_id":          row.event_id,
@@ -278,7 +377,6 @@ def main():
         attempts.append(attempt)
         if i % 100 == 0 or i == len(to_fetch):
             print(f"  {i}/{len(to_fetch)} attempted")
-        time.sleep(request_delay_ms / 1000.0)
 
     new_df   = spark.createDataFrame(attempts, schema=ATTEMPTS_SCHEMA)
     combined = merge_attempts(existing, new_df, retry_transient)
