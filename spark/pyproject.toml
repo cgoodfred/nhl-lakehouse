@@ -3,7 +3,14 @@ name = "nhl-lakehouse-spark"
 version = "0.1.0"
 description = "PySpark transformations producing silver and gold Iceberg tables."
 requires-python = ">=3.12"
-dependencies = ["pyspark==3.5.7"]
+dependencies = [
+    "pyspark==3.5.7",
+    # bronze.tracking_ingest fetches tracking JSON from wsr.nhle.com (requests)
+    # and writes it to SeaweedFS (boto3). Existing JVM-side s3a configs don't
+    # apply to a Python boto3 client, so this job carries its own HTTP/S3 stack.
+    "requests==2.32.3",
+    "boto3==1.35.36",
+]
 
 [dependency-groups]
 dev = [
@@ -25,13 +32,24 @@ select = [
     "RUF", # ruff-specific
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Job modules run inside the apache/spark:3.5.7-python3 container, whose
+# base ships Python 3.8 (Ubuntu 20.04). Suppress UP017 here so we can keep
+# using `datetime.timezone.utc` — `datetime.UTC` doesn't exist until 3.11.
+# Modern annotation syntax (X | None, list[T]) is fine via
+# `from __future__ import annotations` in each job that needs it.
+# Tests get the same exemption so they can mirror the runtime convention
+# without ruff auto-fixing them back to `dt.UTC` and weakening the guardrail.
+"jobs/**/*.py"  = ["UP017"]
+"tests/**/*.py" = ["UP017"]
+
 [tool.ruff.lint.isort]
 # jobs/ subdirs are copied into the image with PYTHONPATH=/opt/jobs, so
 # jobs do `from common import ...` (common.py at jobs root) and tests
 # do `from games import ...` (silver/* on sys.path via conftest). Declare
 # the module names explicitly so isort groups them as first-party rather
 # than alphabetizing them in with pyspark.
-known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots"]
+known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots", "tracking_ingest"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

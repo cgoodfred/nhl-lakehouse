@@ -15,7 +15,7 @@ _JOBS_DIR = _SPARK_DIR / "jobs"
 # `from common import ...` (common.py lives at jobs/common.py)
 sys.path.insert(0, str(_JOBS_DIR))
 # `from games import ...`, `from plays import ...`, etc. — tier subdirs
-for tier in ("silver", "gold"):
+for tier in ("bronze", "silver", "gold"):
     tier_dir = _JOBS_DIR / tier
     if tier_dir.is_dir():
         sys.path.insert(0, str(tier_dir))

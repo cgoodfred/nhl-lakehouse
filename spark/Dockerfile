@@ -17,10 +17,19 @@ RUN set -eux; \
     curl -fsSL -o /opt/spark/jars/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar \
       https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar
 
+# Python deps that jobs need beyond what the Spark base image ships.
+# bronze/tracking_ingest.py uses requests (HTTP client) + boto3 (SeaweedFS
+# PUT). Keep this list small and pin versions so image rebuilds are
+# deterministic.
+RUN pip install --no-cache-dir \
+      requests==2.32.3 \
+      boto3==1.35.36
+
 # Jobs layout in the image mirrors the repo:
 #   /opt/jobs/common.py
+#   /opt/jobs/bronze/<job>.py
 #   /opt/jobs/silver/<table>.py
-#   /opt/jobs/gold/<table>.py    (future)
+#   /opt/jobs/gold/<table>.py
 # PYTHONPATH lets jobs in any tier subdir do `from common import get_spark`
 # without needing relative-import package boilerplate.
 COPY jobs/ /opt/jobs/
