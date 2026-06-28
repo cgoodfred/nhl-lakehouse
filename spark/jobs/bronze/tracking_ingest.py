@@ -17,22 +17,34 @@ Design notes:
   * `tracking_attempts` is current-state. One row per (game_id, event_id),
     never multiple. Re-running the job is a no-op for every event already in
     the table; --retry-transient widens the candidate set to include prior
-    http_other/fetch_error rows so they get overwritten with a fresh attempt.
+    http_other/fetch_error/invalid_payload rows so they get overwritten.
+
+  * 200 responses are NOT trusted blindly. The CDN occasionally returns a 200
+    with an HTML challenge page; we parse the body and require a non-empty
+    top-level list BEFORE writing bronze, otherwise we'd commit garbage to
+    durable storage and have to clean it up downstream.
 
   * boto3 needs its OWN endpoint/region/path-style config — the existing
     spark.hadoop.fs.s3a.* configs apply to the JVM Hadoop FileSystem path that
     Iceberg uses, not to a Python boto3 client. SeaweedFS-compat options are
     set explicitly in _s3_client().
 
+  * Python 3.8 in the apache/spark:3.5.7-python3 base image: NO `X | None`,
+    `datetime.UTC`, or `list[T]` runtime expressions. We use
+    `from __future__ import annotations` to keep modern syntax in TYPE hints
+    only (lazy-evaluated, never run); runtime expressions stay 3.8-compatible.
+
 Knobs (sparkConf):
   - spark.tracking.retry_transient    bool, default false
   - spark.tracking.request_delay_ms   int,  default 150
 """
 
+from __future__ import annotations
+
 import json
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import boto3
 import requests
@@ -79,29 +91,62 @@ ATTEMPTS_SCHEMA = StructType([
 ])
 
 # Statuses that mean "tried, can be retried with --retry-transient".
-TRANSIENT_STATUSES = ("http_other", "fetch_error")
+# invalid_payload is included because a Cloudflare interstitial returning a 200
+# with HTML is by nature transient — a later retry from a fresh IP / a moment
+# later may get the real JSON.
+TRANSIENT_STATUSES = ("http_other", "fetch_error", "invalid_payload")
 
 
 @dataclass
 class FetchResult:
-    status: str               # 'success' | 'http_404' | 'http_other' | 'fetch_error'
+    # 'success' | 'http_404' | 'http_other' | 'fetch_error' | 'invalid_payload'
+    status: str
     http_code: int | None
-    body: bytes | None
+    body: bytes | None                  # populated only on success
+    frame_count: int | None             # populated only on success
     error: str | None
 
 
 def fetch_tracking(url: str, headers: dict, timeout: int = 10) -> FetchResult:
-    """Single HTTP fetch with categorized result. No retries — re-run the job
-    with --retry-transient for that."""
+    """Single HTTP fetch + payload validation. No retries — re-run the job
+    with --retry-transient for that.
+
+    A 200 status is NOT trusted on its own: the upstream CDN occasionally
+    returns a 200 with a Cloudflare challenge page or an unrelated HTML
+    response. We parse the body and require a non-empty top-level JSON list
+    (the tracking payload shape) before reporting success. Anything else at
+    200 becomes 'invalid_payload' so we don't write garbage to bronze."""
     try:
         resp = requests.get(url, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
-        return FetchResult("fetch_error", None, None, f"{type(exc).__name__}: {exc}")
-    if resp.status_code == 200:
-        return FetchResult("success", 200, resp.content, None)
+        return FetchResult(
+            "fetch_error", None, None, None, f"{type(exc).__name__}: {exc}",
+        )
     if resp.status_code == 404:
-        return FetchResult("http_404", 404, None, None)
-    return FetchResult("http_other", resp.status_code, None, resp.text[:200])
+        return FetchResult("http_404", 404, None, None, None)
+    if resp.status_code != 200:
+        return FetchResult(
+            "http_other", resp.status_code, None, None, resp.text[:200],
+        )
+    # 200 — parse + validate before reporting success.
+    try:
+        parsed = json.loads(resp.content)
+    except (ValueError, UnicodeDecodeError) as exc:
+        return FetchResult(
+            "invalid_payload", 200, None, None,
+            f"JSON parse: {type(exc).__name__}: {exc}",
+        )
+    if not isinstance(parsed, list):
+        return FetchResult(
+            "invalid_payload", 200, None, None,
+            f"expected top-level list, got {type(parsed).__name__}",
+        )
+    if not parsed:
+        return FetchResult(
+            "invalid_payload", 200, None, None,
+            "expected non-empty list, got empty list",
+        )
+    return FetchResult("success", 200, resp.content, len(parsed), None)
 
 
 def candidates(
@@ -213,7 +258,7 @@ def main():
             "season":            row.season,
             "source_url":        row.ppt_replay_url,
             "source_object_key": None,
-            "attempted_at":      datetime.now(UTC),
+            "attempted_at":      datetime.now(timezone.utc),
             "status":            result.status,
             "http_code":         result.http_code,
             "frame_count":       None,
@@ -221,16 +266,15 @@ def main():
         }
         if result.status == "success":
             key = _object_key(row.season, row.game_id, row.event_id)
+            # fetch_tracking has already parsed + validated the body, so the
+            # PUT lands only known-good JSON. frame_count comes from the same
+            # parsed length — no second parse here.
             s3.put_object(
                 Bucket=BRONZE_BUCKET, Key=key,
                 Body=result.body, ContentType="application/json",
             )
             attempt["source_object_key"] = key
-            # Frame count is the length of the top-level JSON array.
-            try:
-                attempt["frame_count"] = len(json.loads(result.body))
-            except (ValueError, TypeError):
-                attempt["frame_count"] = None
+            attempt["frame_count"]       = result.frame_count
         attempts.append(attempt)
         if i % 100 == 0 or i == len(to_fetch):
             print(f"  {i}/{len(to_fetch)} attempted")

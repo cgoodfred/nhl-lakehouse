@@ -32,6 +32,14 @@ select = [
     "RUF", # ruff-specific
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Job modules run inside the apache/spark:3.5.7-python3 container, whose
+# base ships Python 3.8 (Ubuntu 20.04). Suppress UP017 here so we can keep
+# using `datetime.timezone.utc` — `datetime.UTC` doesn't exist until 3.11.
+# Modern annotation syntax (X | None, list[T]) is fine via
+# `from __future__ import annotations` in each job that needs it.
+"jobs/**/*.py" = ["UP017"]
+
 [tool.ruff.lint.isort]
 # jobs/ subdirs are copied into the image with PYTHONPATH=/opt/jobs, so
 # jobs do `from common import ...` (common.py at jobs root) and tests

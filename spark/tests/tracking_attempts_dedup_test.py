@@ -96,20 +96,24 @@ def test_candidates_retry_transient_reincludes_transient_failures(spark):
         _goal(20242025, 2024020001, 100),
         _goal(20242025, 2024020001, 200),
         _goal(20242025, 2024020001, 300),
+        _goal(20242025, 2024020001, 400),
         _goal(20242025, 2024020002, 100),
     ])
     existing = _attempts(spark, [
-        _attempt(20242025, 2024020001, 100, "success",     200, 140),
-        _attempt(20242025, 2024020001, 200, "http_404",    404),
-        _attempt(20242025, 2024020001, 300, "fetch_error", None, error="timeout"),
+        _attempt(20242025, 2024020001, 100, "success",         200, 140),
+        _attempt(20242025, 2024020001, 200, "http_404",        404),
+        _attempt(20242025, 2024020001, 300, "fetch_error",     None, error="timeout"),
+        _attempt(20242025, 2024020001, 400, "invalid_payload", 200,  error="not a list"),
     ])
     # Without retry: only the un-attempted (2024020002, 100) is a candidate.
     no_retry = candidates(existing=existing, goals=goals, retry_transient=False)
     assert {(r.game_id, r.event_id) for r in no_retry.collect()} == {(2024020002, 100)}
-    # With retry: also re-attempt the fetch_error one; 404 and success stay skipped.
+    # With retry: re-attempt the fetch_error AND invalid_payload rows; 404 and
+    # success stay skipped (those are durable answers, not transient hiccups).
     with_retry = candidates(existing=existing, goals=goals, retry_transient=True)
     assert {(r.game_id, r.event_id) for r in with_retry.collect()} == {
         (2024020001, 300),
+        (2024020001, 400),
         (2024020002, 100),
     }
 
