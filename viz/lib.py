@@ -43,12 +43,29 @@ def catalog() -> RestCatalog:
     )
 
 
-def load_table_arrow(table_name: str, *, attempts: int = 3, delay_sec: float = 0.75):
+def load_table_arrow(
+    table_name: str,
+    *,
+    row_filter=None,
+    selected_fields: tuple[str, ...] = ("*",),
+    limit: int | None = None,
+    attempts: int = 3,
+    delay_sec: float = 0.75,
+):
     """Load an Iceberg table as Arrow with a short retry for startup races."""
     last_exc: Exception | None = None
     for attempt in range(attempts):
         try:
-            return catalog().load_table(table_name).scan().to_arrow()
+            return (
+                catalog()
+                .load_table(table_name)
+                .scan(
+                    row_filter=row_filter,
+                    selected_fields=selected_fields,
+                    limit=limit,
+                )
+                .to_arrow()
+            )
         except Exception as exc:
             last_exc = exc
             if attempt < attempts - 1:
@@ -71,6 +88,14 @@ def lakehouse_error_message(table_name: str, exc: Exception) -> str:
             "The catalog returned `Forbidden`, which usually means the viz pod does "
             "not yet have valid Lakekeeper/S3 credentials or the catalog token is not "
             "ready. Refreshing may resolve this if the pod just started."
+        )
+    if "service unavailable" in lowered or "status 503" in lowered or " 503" in lowered:
+        return (
+            f"Could not read `{table_name}` from the lakehouse after retrying.\n\n"
+            "The lakehouse returned `503 Service Unavailable`. This usually means the "
+            "catalog or object storage could not serve the read quickly enough. Try "
+            "again shortly; if it persists, the table read path likely needs a smaller "
+            "query or a pre-shaped serving table."
         )
     if "not found" in lowered or "no such table" in lowered:
         return (

@@ -205,6 +205,18 @@ def _empty_tracking_status_arrow():
     })
 
 
+def _optional_int(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number):
+        return None
+    return int(number)
+
+
 @st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
 def _shots_arrow():
     try:
@@ -519,7 +531,12 @@ def _fetch_tracking_http(url: str):
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading tracking frames from Iceberg…")
-def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
+def _fetch_tracking_silver(
+    season: int,
+    game_id: int,
+    event_id: int,
+    expected_frames: int | None = None,
+):
     """Load tracking frames for one goal from silver.tracking_frames and
     convert back to the NHL on-the-wire JSON shape that _tracking_animation
     expects (one dict per frame with `timeStamp` + `onIce` map).
@@ -529,17 +546,28 @@ def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
     table."""
     from pyiceberg.expressions import And, EqualTo
 
-    cat = catalog()
     row_filter = And(
         EqualTo("season",   season),
         And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
     )
-    arrow = (
-        cat.load_table("silver.tracking_frames")
-        .scan(row_filter=row_filter)
-        .to_arrow()
+    limit = expected_frames + 5 if expected_frames is not None else None
+    arrow = load_table_arrow(
+        "silver.tracking_frames",
+        row_filter=row_filter,
+        selected_fields=(
+            "frame_index",
+            "timestamp_ds",
+            "puck_x_in",
+            "puck_y_in",
+            "on_ice",
+        ),
+        limit=limit,
     )
     rows = arrow.to_pylist()
+    if not rows:
+        raise RuntimeError(
+            f"No silver.tracking_frames rows found for game_id={game_id}, event_id={event_id}"
+        )
     # Silver doesn't preserve the upstream onIce dict KEYS — we keep only
     # the player_id which is what _frame_team_data actually reads. Re-key
     # by player_id (string-stringified to match the JSON shape). The puck
@@ -1402,16 +1430,31 @@ def main():
         elif status == "available":
             # season comes from the sidebar filter, not the row — every shot
             # in `shots` matches that filter, so it's the same value either way.
+            expected_frames = _optional_int(getattr(sel, "tracking_frame_count", None))
             try:
                 frames = _fetch_tracking_silver(
-                    int(season), int(sel.game_id), int(sel.event_id),
+                    int(season),
+                    int(sel.game_id),
+                    int(sel.event_id),
+                    expected_frames,
                 )
             except Exception as exc:
-                st.warning(
-                    f"Could not load tracking frames from silver "
-                    f"(game_id={sel.game_id}, event_id={sel.event_id})\n\n"
-                    f"`{exc.__class__.__name__}: {exc}`"
-                )
+                silver_error = exc
+                if sel.ppt_replay_url:
+                    try:
+                        frames = _fetch_tracking_http(sel.ppt_replay_url)
+                        st.caption(
+                            "Loaded tracking from the NHL replay URL because the "
+                            "stored Silver frames were temporarily unavailable."
+                        )
+                    except Exception as http_exc:
+                        st.warning(
+                            f"{lakehouse_error_message('silver.tracking_frames', silver_error)}"
+                            f"\n\nLive fallback also failed for {sel.ppt_replay_url}.\n\n"
+                            f"`{http_exc.__class__.__name__}: {http_exc}`"
+                        )
+                else:
+                    st.warning(lakehouse_error_message("silver.tracking_frames", silver_error))
         else:
             # not_attempted or pending_silver_rebuild — fall back to a live
             # HTTP fetch from wsr.nhle.com so the viz keeps working through
