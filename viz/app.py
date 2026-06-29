@@ -18,7 +18,14 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from lib import CARD_BASE_STYLE, catalog, fmt_season, metric_card
+from lib import (
+    CARD_BASE_STYLE,
+    catalog,
+    fmt_season,
+    lakehouse_error_message,
+    load_table_arrow,
+    metric_card,
+)
 
 # NHL rink dimensions in feet, official coord system: x in [-100, 100],
 # y in [-42.5, 42.5]. Corner radius is 28ft.
@@ -185,29 +192,41 @@ PPT_HEADERS = {
 }
 
 
-@st.cache_data(ttl=300, show_spinner="Loading goals from Iceberg…")
+def _empty_tracking_status_arrow():
+    import pyarrow as pa
+
+    return pa.table({
+        "season":        pa.array([], type=pa.int32()),
+        "game_id":       pa.array([], type=pa.int64()),
+        "event_id":      pa.array([], type=pa.int64()),
+        "tracking_status": pa.array([], type=pa.string()),
+        "frame_count":   pa.array([], type=pa.int32()),
+        "error_message": pa.array([], type=pa.string()),
+    })
+
+
+def _optional_int(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number):
+        return None
+    return int(number)
+
+
+@st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
 def _shots_arrow():
     try:
-        cat = catalog()
+        return load_table_arrow("gold.player_shots")
     except Exception as exc:
-        st.error(
-            "Could not connect to the Lakekeeper catalog. Check the viz "
-            "Lakekeeper/S3 environment variables and local port-forwards.\n\n"
-            f"`{exc}`"
-        )
-        st.stop()
-
-    try:
-        return cat.load_table("gold.player_shots").scan().to_arrow()
-    except Exception as exc:
-        st.error(
-            "Could not load gold.player_shots. Has the gold Spark job run yet?\n\n"
-            f"`{exc}`"
-        )
+        st.error(lakehouse_error_message("gold.player_shots", exc))
         st.stop()
 
 
-@st.cache_data(ttl=300, show_spinner="Loading tracking status from Iceberg…")
+@st.cache_data(ttl=300, show_spinner=False)
 def _tracking_status_arrow():
     """Per-goal tracking availability from gold.goal_tracking_status.
 
@@ -216,38 +235,14 @@ def _tracking_status_arrow():
     per-row status icon + the tracking panel knows whether to read from
     silver, fall back to live HTTP, or render a clean 'no data' message."""
     try:
-        cat = catalog()
-    except Exception:
-        # The main shots load reports catalog failures. Keep this optional
-        # table from turning the whole app into a second traceback.
-        import pyarrow as pa
-
-        return pa.table({
-            "season":        pa.array([], type=pa.int32()),
-            "game_id":       pa.array([], type=pa.int64()),
-            "event_id":      pa.array([], type=pa.int64()),
-            "tracking_status": pa.array([], type=pa.string()),
-            "frame_count":   pa.array([], type=pa.int32()),
-            "error_message": pa.array([], type=pa.string()),
-        })
-
-    try:
-        return cat.load_table("gold.goal_tracking_status").scan().to_arrow()
+        return load_table_arrow("gold.goal_tracking_status", attempts=2)
     except Exception:
         # Gold table may not exist yet on a fresh deploy — viz still works
         # via the live-HTTP fallback in that case. Empty Arrow with the
         # expected column set so the LEFT JOIN below produces all-null
         # tracking_status / frame_count / error_message → resolved as
         # 'not_attempted' downstream.
-        import pyarrow as pa
-        return pa.table({
-            "season":        pa.array([], type=pa.int32()),
-            "game_id":       pa.array([], type=pa.int64()),
-            "event_id":      pa.array([], type=pa.int64()),
-            "tracking_status": pa.array([], type=pa.string()),
-            "frame_count":   pa.array([], type=pa.int32()),
-            "error_message": pa.array([], type=pa.string()),
-        })
+        return _empty_tracking_status_arrow()
 
 
 def _shots_connection():
@@ -536,7 +531,12 @@ def _fetch_tracking_http(url: str):
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading tracking frames from Iceberg…")
-def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
+def _fetch_tracking_silver(
+    season: int,
+    game_id: int,
+    event_id: int,
+    expected_frames: int | None = None,
+):
     """Load tracking frames for one goal from silver.tracking_frames and
     convert back to the NHL on-the-wire JSON shape that _tracking_animation
     expects (one dict per frame with `timeStamp` + `onIce` map).
@@ -546,17 +546,28 @@ def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
     table."""
     from pyiceberg.expressions import And, EqualTo
 
-    cat = catalog()
     row_filter = And(
         EqualTo("season",   season),
         And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
     )
-    arrow = (
-        cat.load_table("silver.tracking_frames")
-        .scan(row_filter=row_filter)
-        .to_arrow()
+    limit = expected_frames + 5 if expected_frames is not None else None
+    arrow = load_table_arrow(
+        "silver.tracking_frames",
+        row_filter=row_filter,
+        selected_fields=(
+            "frame_index",
+            "timestamp_ds",
+            "puck_x_in",
+            "puck_y_in",
+            "on_ice",
+        ),
+        limit=limit,
     )
     rows = arrow.to_pylist()
+    if not rows:
+        raise RuntimeError(
+            f"No silver.tracking_frames rows found for game_id={game_id}, event_id={event_id}"
+        )
     # Silver doesn't preserve the upstream onIce dict KEYS — we keep only
     # the player_id which is what _frame_team_data actually reads. Re-key
     # by player_id (string-stringified to match the JSON shape). The puck
@@ -1419,16 +1430,31 @@ def main():
         elif status == "available":
             # season comes from the sidebar filter, not the row — every shot
             # in `shots` matches that filter, so it's the same value either way.
+            expected_frames = _optional_int(getattr(sel, "tracking_frame_count", None))
             try:
                 frames = _fetch_tracking_silver(
-                    int(season), int(sel.game_id), int(sel.event_id),
+                    int(season),
+                    int(sel.game_id),
+                    int(sel.event_id),
+                    expected_frames,
                 )
             except Exception as exc:
-                st.warning(
-                    f"Could not load tracking frames from silver "
-                    f"(game_id={sel.game_id}, event_id={sel.event_id})\n\n"
-                    f"`{exc.__class__.__name__}: {exc}`"
-                )
+                silver_error = exc
+                if sel.ppt_replay_url:
+                    try:
+                        frames = _fetch_tracking_http(sel.ppt_replay_url)
+                        st.caption(
+                            "Loaded tracking from the NHL replay URL because the "
+                            "stored Silver frames were temporarily unavailable."
+                        )
+                    except Exception as http_exc:
+                        st.warning(
+                            f"{lakehouse_error_message('silver.tracking_frames', silver_error)}"
+                            f"\n\nLive fallback also failed for {sel.ppt_replay_url}.\n\n"
+                            f"`{http_exc.__class__.__name__}: {http_exc}`"
+                        )
+                else:
+                    st.warning(lakehouse_error_message("silver.tracking_frames", silver_error))
         else:
             # not_attempted or pending_silver_rebuild — fall back to a live
             # HTTP fetch from wsr.nhle.com so the viz keeps working through

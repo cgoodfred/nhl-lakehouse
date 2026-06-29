@@ -2,6 +2,7 @@
 
 import os
 import socket
+import time
 
 import streamlit as st
 from pyiceberg.catalog.rest import RestCatalog
@@ -40,6 +41,68 @@ def catalog() -> RestCatalog:
             "s3.path-style-access": "true",
         },
     )
+
+
+def load_table_arrow(
+    table_name: str,
+    *,
+    row_filter=None,
+    selected_fields: tuple[str, ...] = ("*",),
+    limit: int | None = None,
+    attempts: int = 3,
+    delay_sec: float = 0.75,
+):
+    """Load an Iceberg table as Arrow with a short retry for startup races."""
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return (
+                catalog()
+                .load_table(table_name)
+                .scan(
+                    row_filter=row_filter,
+                    selected_fields=selected_fields,
+                    limit=limit,
+                )
+                .to_arrow()
+            )
+        except Exception as exc:
+            last_exc = exc
+            if attempt < attempts - 1:
+                time.sleep(delay_sec * (attempt + 1))
+    raise last_exc or RuntimeError(f"Could not load {table_name}")
+
+
+def lakehouse_error_message(table_name: str, exc: Exception) -> str:
+    detail = str(exc) or exc.__class__.__name__
+    lowered = detail.lower()
+
+    if isinstance(exc, KeyError):
+        return (
+            "The lakehouse connection is not configured for this Streamlit process. "
+            f"Missing environment value: `{exc}`"
+        )
+    if "forbidden" in lowered or "403" in lowered:
+        return (
+            f"Could not read `{table_name}` from the lakehouse after retrying.\n\n"
+            "The catalog returned `Forbidden`, which usually means the viz pod does "
+            "not yet have valid Lakekeeper/S3 credentials or the catalog token is not "
+            "ready. Refreshing may resolve this if the pod just started."
+        )
+    if "service unavailable" in lowered or "status 503" in lowered or " 503" in lowered:
+        return (
+            f"Could not read `{table_name}` from the lakehouse after retrying.\n\n"
+            "The lakehouse returned `503 Service Unavailable`. This usually means the "
+            "catalog or object storage could not serve the read quickly enough. Try "
+            "again shortly; if it persists, the table read path likely needs a smaller "
+            "query or a pre-shaped serving table."
+        )
+    if "not found" in lowered or "no such table" in lowered:
+        return (
+            f"Could not find `{table_name}` in the lakehouse. The upstream job may "
+            "not have created it yet."
+        )
+    return f"Could not read `{table_name}` from the lakehouse after retrying.\n\n`{detail}`"
 
 
 def fmt_season(season: int) -> str:
