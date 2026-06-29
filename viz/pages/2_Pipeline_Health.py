@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +9,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from lib import catalog, fmt_season, metric_card
+from lib import catalog, fmt_season, load_table_arrow, metric_card
 
 st.set_page_config(page_title="Pipeline Health", layout="wide", page_icon="📊")
 
@@ -52,10 +51,15 @@ FRESHNESS_LABELS = {
 }
 
 
-@dataclass
-class SectionData:
-    data: Any = None
-    error: str | None = None
+SectionData = dict[str, Any]
+
+
+def _section(data: Any = None, error: str | None = None) -> SectionData:
+    return {"data": data, "error": error}
+
+
+def _section_error(exc: Exception) -> SectionData:
+    return _section(error=f"{exc.__class__.__name__}: {exc}")
 
 
 def _now_utc() -> datetime:
@@ -132,7 +136,7 @@ def _table_health() -> SectionData:
     try:
         cat = catalog()
     except Exception as exc:
-        return SectionData(error=f"{exc.__class__.__name__}: {exc}")
+        return _section_error(exc)
 
     for name in TABLES:
         tier, table = name.split(".", 1)
@@ -182,46 +186,46 @@ def _table_health() -> SectionData:
                 "error": error,
             }
         )
-    return SectionData(pd.DataFrame(rows))
+    return _section(pd.DataFrame(rows))
 
 
 @st.cache_data(ttl=60, show_spinner="Loading seasons...")
 def _seasons() -> SectionData:
     try:
-        arrow = catalog().load_table("silver.games").scan().to_arrow()
+        arrow = load_table_arrow("silver.games")
         if "season" not in arrow.column_names or arrow.num_rows == 0:
-            return SectionData([])
+            return _section([])
         seasons = sorted(
             {int(value) for value in arrow.column("season").to_pylist() if value is not None}
         )
-        return SectionData(seasons)
+        return _section(seasons)
     except Exception as exc:
-        return SectionData(error=f"{exc.__class__.__name__}: {exc}")
+        return _section_error(exc)
 
 
 @st.cache_data(ttl=60, show_spinner="Loading tracking attempts...")
 def _tracking_attempts() -> SectionData:
     try:
-        arrow = catalog().load_table("silver.tracking_attempts").scan().to_arrow()
+        arrow = load_table_arrow("silver.tracking_attempts")
         if arrow.num_rows == 0:
-            return SectionData(pd.DataFrame(columns=["status", "attempts"]))
+            return _section(pd.DataFrame(columns=["status", "attempts"]))
         df = arrow.select(["status"]).to_pandas()
         counts = (
             df["status"].fillna("unknown").value_counts().rename_axis("status").reset_index(
                 name="attempts"
             )
         )
-        return SectionData(counts)
+        return _section(counts)
     except Exception as exc:
-        return SectionData(error=f"{exc.__class__.__name__}: {exc}")
+        return _section_error(exc)
 
 
 @st.cache_data(ttl=60, show_spinner="Loading tracking coverage...")
 def _tracking_coverage() -> SectionData:
     try:
-        arrow = catalog().load_table("gold.goal_tracking_status").scan().to_arrow()
+        arrow = load_table_arrow("gold.goal_tracking_status")
         if arrow.num_rows == 0:
-            return SectionData(pd.DataFrame(columns=["tracking_status", "goals"]))
+            return _section(pd.DataFrame(columns=["tracking_status", "goals"]))
         df = arrow.select(["tracking_status"]).to_pandas()
         counts = (
             df["tracking_status"]
@@ -230,9 +234,9 @@ def _tracking_coverage() -> SectionData:
             .rename_axis("tracking_status")
             .reset_index(name="goals")
         )
-        return SectionData(counts)
+        return _section(counts)
     except Exception as exc:
-        return SectionData(error=f"{exc.__class__.__name__}: {exc}")
+        return _section_error(exc)
 
 
 @st.cache_data(ttl=60, show_spinner="Loading snapshot history...")
@@ -242,7 +246,7 @@ def _snapshot_history() -> SectionData:
     try:
         cat = catalog()
     except Exception as exc:
-        return SectionData(error=f"{exc.__class__.__name__}: {exc}")
+        return _section_error(exc)
 
     for name in TABLES:
         try:
@@ -265,7 +269,7 @@ def _snapshot_history() -> SectionData:
                 )
         except Exception:
             continue
-    return SectionData(pd.DataFrame(rows))
+    return _section(pd.DataFrame(rows))
 
 
 def _metric_value(health: pd.DataFrame, table_name: str) -> str:
@@ -276,19 +280,22 @@ def _metric_value(health: pd.DataFrame, table_name: str) -> str:
 
 
 def _render_cards(health: pd.DataFrame, seasons: SectionData, coverage: SectionData) -> None:
-    if seasons.error:
+    seasons_data = seasons["data"]
+    coverage_data = coverage["data"]
+
+    if seasons["error"]:
         season_value = "unknown"
-    elif seasons.data:
-        season_value = f"{fmt_season(seasons.data[0])} - {fmt_season(seasons.data[-1])}"
+    elif seasons_data:
+        season_value = f"{fmt_season(seasons_data[0])} - {fmt_season(seasons_data[-1])}"
     else:
         season_value = "0"
 
     available_pct = "unknown"
-    if coverage.error is None and coverage.data is not None and not coverage.data.empty:
-        total = int(coverage.data["goals"].sum())
+    if coverage["error"] is None and coverage_data is not None and not coverage_data.empty:
+        total = int(coverage_data["goals"].sum())
         available = int(
-            coverage.data.loc[
-                coverage.data["tracking_status"] == "available", "goals"
+            coverage_data.loc[
+                coverage_data["tracking_status"] == "available", "goals"
             ].sum()
         )
         available_pct = f"{available / total:.1%}" if total else "0.0%"
@@ -357,12 +364,13 @@ def _render_tracking(attempts: SectionData, coverage: SectionData) -> None:
 
     with left:
         st.markdown("**Fetch Reliability**")
-        if attempts.error:
-            st.warning(f"Could not load silver.tracking_attempts: `{attempts.error}`")
-        elif attempts.data.empty:
+        attempts_data = attempts["data"]
+        if attempts["error"]:
+            st.warning(f"Could not load silver.tracking_attempts: `{attempts['error']}`")
+        elif attempts_data.empty:
             st.info("No tracking attempts recorded yet.")
         else:
-            df = attempts.data.copy()
+            df = attempts_data.copy()
             total_expected = int(
                 df.loc[
                     ~df["status"].isin(ATTEMPT_NOT_TRACKED_STATUSES),
@@ -383,12 +391,13 @@ def _render_tracking(attempts: SectionData, coverage: SectionData) -> None:
 
     with right:
         st.markdown("**Goal Coverage**")
-        if coverage.error:
-            st.warning(f"Could not load gold.goal_tracking_status: `{coverage.error}`")
-        elif coverage.data.empty:
+        coverage_data = coverage["data"]
+        if coverage["error"]:
+            st.warning(f"Could not load gold.goal_tracking_status: `{coverage['error']}`")
+        elif coverage_data.empty:
             st.info("No tracking coverage records available yet.")
         else:
-            df = coverage.data.copy()
+            df = coverage_data.copy()
             total = int(df["goals"].sum())
             available = int(df.loc[df["tracking_status"] == "available", "goals"].sum())
             st.metric("Goals with stored frames", f"{available / total:.1%}" if total else "0.0%")
@@ -400,10 +409,10 @@ def _render_tracking(attempts: SectionData, coverage: SectionData) -> None:
 
 def _render_activity(history: SectionData) -> None:
     st.markdown("### Writes Per Day")
-    if history.error:
-        st.warning(f"Could not load snapshot history: `{history.error}`")
+    if history["error"]:
+        st.warning(f"Could not load snapshot history: `{history['error']}`")
         return
-    df = history.data
+    df = history["data"]
     if df.empty:
         st.info(f"No snapshots found in the last {SNAPSHOT_HISTORY_DAYS} days.")
         return
@@ -465,10 +474,10 @@ def main() -> None:
         st.rerun()
 
     health_result = _table_health()
-    if health_result.error:
-        st.error(f"Could not load table health: `{health_result.error}`")
+    if health_result["error"]:
+        st.error(f"Could not load table health: `{health_result['error']}`")
         return
-    health = health_result.data
+    health = health_result["data"]
     seasons = _seasons()
     attempts = _tracking_attempts()
     coverage = _tracking_coverage()
