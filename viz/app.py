@@ -12,28 +12,13 @@ Lakekeeper's catalog overrides resolve to the laptop's port-forwards.
 """
 
 import math
-import os
-import socket
 
-_IN_CLUSTER = bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
-if not _IN_CLUSTER:
-    _real_getaddrinfo = socket.getaddrinfo
+import duckdb
+import plotly.graph_objects as go
+import requests
+import streamlit as st
 
-    def _patched_getaddrinfo(host, *args, **kwargs):
-        if host in (
-            "lakekeeper.lakehouse.svc.cluster.local",
-            "seaweedfs-s3.lakehouse.svc.cluster.local",
-        ):
-            return _real_getaddrinfo("127.0.0.1", *args, **kwargs)
-        return _real_getaddrinfo(host, *args, **kwargs)
-
-    socket.getaddrinfo = _patched_getaddrinfo
-
-import duckdb  # noqa: E402
-import plotly.graph_objects as go  # noqa: E402
-import requests  # noqa: E402
-import streamlit as st  # noqa: E402
-from pyiceberg.catalog.rest import RestCatalog  # noqa: E402
+from lib import CARD_BASE_STYLE, catalog, fmt_season, metric_card
 
 # NHL rink dimensions in feet, official coord system: x in [-100, 100],
 # y in [-42.5, 42.5]. Corner radius is 28ft.
@@ -200,31 +185,20 @@ PPT_HEADERS = {
 }
 
 
-@st.cache_resource
-def _catalog() -> RestCatalog:
-    return RestCatalog(
-        "nhl",
-        **{
-            "uri": os.environ["LAKEKEEPER_URI"],
-            "warehouse": os.environ.get("LAKEKEEPER_WAREHOUSE", "nhl"),
-            "credential": (
-                f"{os.environ['LAKEKEEPER_CLIENT_ID']}:{os.environ['LAKEKEEPER_CLIENT_SECRET']}"
-            ),
-            "scope": os.environ.get("LAKEKEEPER_SCOPE", "lakekeeper"),
-            "oauth2-server-uri": os.environ["LAKEKEEPER_OAUTH2_SERVER_URI"],
-            "s3.endpoint": os.environ["S3_ENDPOINT"],
-            "s3.access-key-id": os.environ["S3_ACCESS_KEY"],
-            "s3.secret-access-key": os.environ["S3_SECRET_KEY"],
-            "s3.path-style-access": "true",
-        },
-    )
-
-
 @st.cache_data(ttl=300, show_spinner="Loading goals from Iceberg…")
 def _shots_arrow():
-    catalog = _catalog()
     try:
-        return catalog.load_table("gold.player_shots").scan().to_arrow()
+        cat = catalog()
+    except Exception as exc:
+        st.error(
+            "Could not connect to the Lakekeeper catalog. Check the viz "
+            "Lakekeeper/S3 environment variables and local port-forwards.\n\n"
+            f"`{exc}`"
+        )
+        st.stop()
+
+    try:
+        return cat.load_table("gold.player_shots").scan().to_arrow()
     except Exception as exc:
         st.error(
             "Could not load gold.player_shots. Has the gold Spark job run yet?\n\n"
@@ -241,9 +215,24 @@ def _tracking_status_arrow():
     Loaded into DuckDB alongside `shots` so the goal table can show a
     per-row status icon + the tracking panel knows whether to read from
     silver, fall back to live HTTP, or render a clean 'no data' message."""
-    catalog = _catalog()
     try:
-        return catalog.load_table("gold.goal_tracking_status").scan().to_arrow()
+        cat = catalog()
+    except Exception:
+        # The main shots load reports catalog failures. Keep this optional
+        # table from turning the whole app into a second traceback.
+        import pyarrow as pa
+
+        return pa.table({
+            "season":        pa.array([], type=pa.int32()),
+            "game_id":       pa.array([], type=pa.int64()),
+            "event_id":      pa.array([], type=pa.int64()),
+            "tracking_status": pa.array([], type=pa.string()),
+            "frame_count":   pa.array([], type=pa.int32()),
+            "error_message": pa.array([], type=pa.string()),
+        })
+
+    try:
+        return cat.load_table("gold.goal_tracking_status").scan().to_arrow()
     except Exception:
         # Gold table may not exist yet on a fresh deploy — viz still works
         # via the live-HTTP fallback in that case. Empty Arrow with the
@@ -271,9 +260,13 @@ def _shots_connection():
 @st.cache_data(ttl=3600, show_spinner="Loading player metadata…")
 def _player_meta() -> dict[int, dict]:
     """Map playerId -> {name, position} for headers and legend rendering."""
-    catalog = _catalog()
     try:
-        arrow = catalog.load_table("silver.players").scan().to_arrow()
+        cat = catalog()
+    except Exception:
+        return {}
+
+    try:
+        arrow = cat.load_table("silver.players").scan().to_arrow()
     except Exception:
         return {}
     df = arrow.to_pandas()
@@ -431,34 +424,6 @@ def _pie(values: list, labels: list, title: str, sort: bool = True) -> go.Figure
     return fig
 
 
-def _fmt_season(season: int) -> str:
-    s = str(season)
-    return f"{s[:4]}-{s[4:]}"
-
-
-# Shared dimensions for the top-row cards. Player card has a 48px avatar +
-# 14px vertical padding = 76px natural height; metric cards have ~36px of
-# text content + 14px padding = ~64px naturally. Setting min-height on both
-# stretches the metric cards to match so the four cards in the row read as
-# one consistent strip rather than a tall card flanked by short ones.
-_CARD_BASE_STYLE = (
-    "background:#1a2129; border-radius:6px; padding:14px 16px; "
-    "min-height:80px; box-sizing:border-box;"
-)
-
-
-def _metric_card(label: str, value: str, accent: str) -> str:
-    """Render an HTML metric card with a left-border accent in team color."""
-    return (
-        f"<div style='{_CARD_BASE_STYLE} border-left:4px solid {accent};'>"
-        f"  <div style='color:#9aa5b1; font-size:0.75em; "
-        f"text-transform:uppercase; letter-spacing:0.05em;'>{label}</div>"
-        f"  <div style='color:#e8eef2; font-size:1.4em; font-weight:600; "
-        f"margin-top:4px;'>{value}</div>"
-        f"</div>"
-    )
-
-
 def _player_card(
     name: str, team: str, position: str, headshot_url: str | None,
     goals: int | None = None,
@@ -496,7 +461,7 @@ def _player_card(
         if goals is not None else ""
     )
     return (
-        f"<div style='{_CARD_BASE_STYLE} border-left:4px solid {accent}; "
+        f"<div style='{CARD_BASE_STYLE} border-left:4px solid {accent}; "
         f"display:flex; align-items:center; gap:14px;'>"
         f"  {avatar_html}"
         f"  <div>"
@@ -581,13 +546,13 @@ def _fetch_tracking_silver(season: int, game_id: int, event_id: int):
     table."""
     from pyiceberg.expressions import And, EqualTo
 
-    catalog = _catalog()
+    cat = catalog()
     row_filter = And(
         EqualTo("season",   season),
         And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
     )
     arrow = (
-        catalog.load_table("silver.tracking_frames")
+        cat.load_table("silver.tracking_frames")
         .scan(row_filter=row_filter)
         .to_arrow()
     )
@@ -1121,7 +1086,7 @@ def main():
 
     sidebar = st.sidebar
     sidebar.markdown("### Filters")
-    season = sidebar.selectbox("Season", seasons, format_func=_fmt_season)
+    season = sidebar.selectbox("Season", seasons, format_func=fmt_season)
     game_type_label = sidebar.selectbox(
         "Game type", list(GAME_TYPE_OPTIONS.keys()), index=0,
     )
@@ -1133,7 +1098,7 @@ def main():
         [season],
     ).fetchall()]
     if not teams:
-        st.warning(f"No goals for {_fmt_season(season)} {game_type_label}.")
+        st.warning(f"No goals for {fmt_season(season)} {game_type_label}.")
         return
     team = sidebar.selectbox(
         "Team", teams,
@@ -1172,7 +1137,7 @@ def main():
     ).fetchall()
     if not players_rows:
         st.warning(
-            f"No goals for {team} in {_fmt_season(season)} {game_type_label} "
+            f"No goals for {team} in {fmt_season(season)} {game_type_label} "
             f"between {date_start} and {date_end}."
         )
         return
@@ -1300,10 +1265,10 @@ def main():
             _player_card(player_name, team, position, headshot_url),
             unsafe_allow_html=True,
         )
-        m2.markdown(_metric_card("Team", team, accent), unsafe_allow_html=True)
-        m3.markdown(_metric_card("Season", _fmt_season(season), accent),
+        m2.markdown(metric_card("Team", team, accent), unsafe_allow_html=True)
+        m3.markdown(metric_card("Season", fmt_season(season), accent),
                     unsafe_allow_html=True)
-        m4.markdown(_metric_card("Goals", str(len(shots)), accent),
+        m4.markdown(metric_card("Goals", str(len(shots)), accent),
                     unsafe_allow_html=True)
 
     if compare_on:
