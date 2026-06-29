@@ -18,7 +18,14 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from lib import CARD_BASE_STYLE, catalog, fmt_season, metric_card
+from lib import (
+    CARD_BASE_STYLE,
+    catalog,
+    fmt_season,
+    lakehouse_error_message,
+    load_table_arrow,
+    metric_card,
+)
 
 # NHL rink dimensions in feet, official coord system: x in [-100, 100],
 # y in [-42.5, 42.5]. Corner radius is 28ft.
@@ -185,29 +192,29 @@ PPT_HEADERS = {
 }
 
 
-@st.cache_data(ttl=300, show_spinner="Loading goals from Iceberg…")
+def _empty_tracking_status_arrow():
+    import pyarrow as pa
+
+    return pa.table({
+        "season":        pa.array([], type=pa.int32()),
+        "game_id":       pa.array([], type=pa.int64()),
+        "event_id":      pa.array([], type=pa.int64()),
+        "tracking_status": pa.array([], type=pa.string()),
+        "frame_count":   pa.array([], type=pa.int32()),
+        "error_message": pa.array([], type=pa.string()),
+    })
+
+
+@st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
 def _shots_arrow():
     try:
-        cat = catalog()
+        return load_table_arrow("gold.player_shots")
     except Exception as exc:
-        st.error(
-            "Could not connect to the Lakekeeper catalog. Check the viz "
-            "Lakekeeper/S3 environment variables and local port-forwards.\n\n"
-            f"`{exc}`"
-        )
-        st.stop()
-
-    try:
-        return cat.load_table("gold.player_shots").scan().to_arrow()
-    except Exception as exc:
-        st.error(
-            "Could not load gold.player_shots. Has the gold Spark job run yet?\n\n"
-            f"`{exc}`"
-        )
+        st.error(lakehouse_error_message("gold.player_shots", exc))
         st.stop()
 
 
-@st.cache_data(ttl=300, show_spinner="Loading tracking status from Iceberg…")
+@st.cache_data(ttl=300, show_spinner=False)
 def _tracking_status_arrow():
     """Per-goal tracking availability from gold.goal_tracking_status.
 
@@ -216,38 +223,14 @@ def _tracking_status_arrow():
     per-row status icon + the tracking panel knows whether to read from
     silver, fall back to live HTTP, or render a clean 'no data' message."""
     try:
-        cat = catalog()
-    except Exception:
-        # The main shots load reports catalog failures. Keep this optional
-        # table from turning the whole app into a second traceback.
-        import pyarrow as pa
-
-        return pa.table({
-            "season":        pa.array([], type=pa.int32()),
-            "game_id":       pa.array([], type=pa.int64()),
-            "event_id":      pa.array([], type=pa.int64()),
-            "tracking_status": pa.array([], type=pa.string()),
-            "frame_count":   pa.array([], type=pa.int32()),
-            "error_message": pa.array([], type=pa.string()),
-        })
-
-    try:
-        return cat.load_table("gold.goal_tracking_status").scan().to_arrow()
+        return load_table_arrow("gold.goal_tracking_status", attempts=2)
     except Exception:
         # Gold table may not exist yet on a fresh deploy — viz still works
         # via the live-HTTP fallback in that case. Empty Arrow with the
         # expected column set so the LEFT JOIN below produces all-null
         # tracking_status / frame_count / error_message → resolved as
         # 'not_attempted' downstream.
-        import pyarrow as pa
-        return pa.table({
-            "season":        pa.array([], type=pa.int32()),
-            "game_id":       pa.array([], type=pa.int64()),
-            "event_id":      pa.array([], type=pa.int64()),
-            "tracking_status": pa.array([], type=pa.string()),
-            "frame_count":   pa.array([], type=pa.int32()),
-            "error_message": pa.array([], type=pa.string()),
-        })
+        return _empty_tracking_status_arrow()
 
 
 def _shots_connection():
