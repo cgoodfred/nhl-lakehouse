@@ -20,6 +20,7 @@ TABLE_FRESHNESS_HOURS = {
     "silver.tracking_attempts": 36,
     "silver.tracking_frames": 36,
     "gold.goal_tracking_status": 36,
+    "gold.goal_tracking_sequences": 36,
 }
 
 TABLES = [
@@ -32,6 +33,7 @@ TABLES = [
     "silver.tracking_frames",
     "gold.player_shots",
     "gold.goal_tracking_status",
+    "gold.goal_tracking_sequences",
 ]
 
 ATTEMPT_FAILURE_STATUSES = {

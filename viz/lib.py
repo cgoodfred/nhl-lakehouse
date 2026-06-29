@@ -56,14 +56,16 @@ def load_table_arrow(
     last_exc: Exception | None = None
     for attempt in range(attempts):
         try:
+            scan_kwargs = {
+                "selected_fields": selected_fields,
+                "limit": limit,
+            }
+            if row_filter is not None:
+                scan_kwargs["row_filter"] = row_filter
             return (
                 catalog()
                 .load_table(table_name)
-                .scan(
-                    row_filter=row_filter,
-                    selected_fields=selected_fields,
-                    limit=limit,
-                )
+                .scan(**scan_kwargs)
                 .to_arrow()
             )
         except Exception as exc:
