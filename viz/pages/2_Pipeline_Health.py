@@ -91,9 +91,22 @@ def _fmt_time(value: datetime | None) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _summary_int(summary: dict[str, Any], *keys: str) -> int | None:
+def _summary_int(summary: Any, *keys: str) -> int | None:
+    """Pull a numeric value out of an Iceberg snapshot summary by key.
+
+    `summary` is either None or a PyIceberg `Summary` (Mapping-like) — NOT a
+    plain dict. We can't `dict(summary)` to flatten because PyIceberg 0.11.x's
+    Summary yields (key, value) tuples on iteration, which `dict()` then
+    re-fetches via __getitem__, which calls .lower() on the tuple key and
+    crashes with 'tuple' object has no attribute 'lower'. Individual string-
+    key lookups via .get() are fine — that path doesn't iterate."""
+    if summary is None:
+        return None
     for key in keys:
-        raw = summary.get(key)
+        try:
+            raw = summary.get(key)
+        except Exception:
+            raw = None
         if raw is None:
             continue
         try:
@@ -101,6 +114,16 @@ def _summary_int(summary: dict[str, Any], *keys: str) -> int | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _summary_get(summary: Any, key: str) -> Any:
+    """String-key accessor that tolerates a None summary."""
+    if summary is None:
+        return None
+    try:
+        return summary.get(key)
+    except Exception:
+        return None
 
 
 def _snapshot_timestamp(snapshot) -> datetime | None:
@@ -146,7 +169,8 @@ def _table_health() -> SectionData:
             iceberg_table = cat.load_table(name)
             snapshots = list(iceberg_table.snapshots())
             latest = _latest_snapshot(iceberg_table)
-            summary = dict(getattr(latest, "summary", {}) or {}) if latest else {}
+            # Don't dict(summary) — see _summary_int docstring for why.
+            summary = getattr(latest, "summary", None) if latest else None
             last_write = _snapshot_timestamp(latest) if latest else None
             row_count = _summary_int(summary, "total-records")
             added_records = _summary_int(summary, "added-records")
@@ -158,7 +182,7 @@ def _table_health() -> SectionData:
                 "added-files-size",
                 "added-file-size",
             )
-            operation = summary.get("operation") or getattr(latest, "operation", None)
+            operation = _summary_get(summary, "operation") or getattr(latest, "operation", None)
             status = _freshness_status(name, row_count, last_write)
             error = None
         except Exception as exc:
@@ -257,16 +281,17 @@ def _snapshot_history() -> SectionData:
         try:
             table = cat.load_table(name)
             for snapshot in table.snapshots():
-                summary = dict(getattr(snapshot, "summary", {}) or {})
                 ts = _snapshot_timestamp(snapshot)
                 if ts is None or ts < cutoff:
                     continue
+                # Don't dict(summary) — see _summary_int docstring for why.
+                summary = getattr(snapshot, "summary", None)
                 rows.append(
                     {
                         "timestamp": ts,
                         "date": ts.date(),
                         "table_name": name,
-                        "operation": summary.get("operation", "unknown"),
+                        "operation": _summary_get(summary, "operation") or "unknown",
                         "added_records": _summary_int(summary, "added-records"),
                         "total_records": _summary_int(summary, "total-records"),
                         "snapshot_id": getattr(snapshot, "snapshot_id", None),
