@@ -7,6 +7,12 @@ One row per goal event with its ordered tracking frames nested into an array.
 This is a serving-shaped table for the Streamlit animation panel: the app can
 load one gold row for a selected goal instead of scanning many frame rows from
 the normalized silver table.
+
+This table keeps only the fields the viz animation needs: timestamp, puck
+source-inch coordinates, and the player `on_ice` array. It does not carry
+silver's puck_x_ft, puck_y_ft, or rel_seconds columns; analysts who need those
+derived fields should query silver.tracking_frames or derive them from the
+source-inch coordinates.
 """
 
 from pyspark.sql import DataFrame

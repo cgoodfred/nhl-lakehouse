@@ -1,12 +1,16 @@
 """Build the gold.goal_tracking_status table — per-goal tracking availability.
 
-Source:  nhl.silver.plays, nhl.silver.tracking_attempts, nhl.silver.tracking_frames
+Source:  nhl.silver.plays, nhl.silver.tracking_attempts, nhl.silver.tracking_frames,
+         nhl.gold.goal_tracking_sequences
 Target:  nhl.gold.goal_tracking_status (Iceberg, one row per goal event)
 
 One row per goal event with a single `tracking_status` enum the viz can
 switch on:
 
-  - 'available'              fetched AND parsed AND frames exist in silver
+  - 'available'              fetched AND parsed AND gold sequence row exists
+  - 'pending_gold_sequence_rebuild'
+                             silver frames exist but gold.goal_tracking_sequences
+                             hasn't been rebuilt yet
   - 'pending_silver_rebuild' fetched but silver.tracking_frames hasn't been
                              rebuilt yet (the freshness gap between bronze
                              ingest writing attempts.status='success' and
@@ -22,10 +26,10 @@ switch on:
   - 'no_url'                 silver.plays.ppt_replay_url is null
 
 `frame_count` comes from the actual silver.tracking_frames row count, NOT
-from attempts.frame_count — the latter is best-effort metadata, the former
-is the authoritative "rows you can query" number. They disagree exactly when
-PR A logged success but PR B hasn't rebuilt yet (the pending_silver_rebuild
-case above).
+from attempts.frame_count — the latter is best-effort metadata. The viz
+animation's "available" contract is stricter: it requires the Gold serving
+sequence row to exist, because the app reads gold.goal_tracking_sequences
+first for playback.
 """
 
 from pyspark.sql import DataFrame
@@ -38,6 +42,7 @@ def transform_goal_tracking_status(
     plays_df: DataFrame,
     attempts_df: DataFrame,
     frames_df: DataFrame,
+    sequences_df: DataFrame,
 ) -> DataFrame:
     """Per-goal denormalization of plays + attempts + frame counts.
 
@@ -51,6 +56,11 @@ def transform_goal_tracking_status(
         frames_df
         .groupBy("season", "game_id", "event_id")
         .agg(count("*").alias("actual_frames"))
+    )
+    sequence_counts = (
+        sequences_df
+        .select("season", "game_id", "event_id", "frame_count")
+        .withColumnRenamed("frame_count", "sequence_frames")
     )
 
     goals = plays_df.where(col("type_desc_key") == "goal")
@@ -71,20 +81,28 @@ def transform_goal_tracking_status(
             & (col("p.event_id") == col("fc.event_id")),
             how="left",
         )
+        .join(
+            sequence_counts.alias("gs"),
+            (col("p.season")   == col("gs.season"))
+            & (col("p.game_id")  == col("gs.game_id"))
+            & (col("p.event_id") == col("gs.event_id")),
+            how="left",
+        )
         .select(
             col("p.game_id").alias("game_id"),
             col("p.event_id").alias("event_id"),
             col("p.season").alias("season"),
             col("p.ppt_replay_url").alias("ppt_replay_url"),
-            # CASE order matters: no_url check first (a goal with no URL was
-            # never attemptable); then the success+frames branches before the
-            # generic status checks so 'available' wins over a later
-            # 'fetch_failed' miscatch.
+            # CASE order matters: no_url first; then success + gold/silver
+            # freshness states before generic status checks.
             when(
                 col("p.ppt_replay_url").isNull(), "no_url",
             ).when(
-                (col("ta.status") == "success") & (col("fc.actual_frames") > 0),
+                (col("ta.status") == "success") & col("gs.sequence_frames").isNotNull(),
                 "available",
+            ).when(
+                (col("ta.status") == "success") & (col("fc.actual_frames") > 0),
+                "pending_gold_sequence_rebuild",
             ).when(
                 (col("ta.status") == "success") & col("fc.actual_frames").isNull(),
                 "pending_silver_rebuild",
@@ -109,8 +127,9 @@ def main() -> None:
     plays    = spark.read.table("nhl.silver.plays")
     attempts = spark.read.table("nhl.silver.tracking_attempts")
     frames   = spark.read.table("nhl.silver.tracking_frames")
+    sequences = spark.read.table("nhl.gold.goal_tracking_sequences")
 
-    out = transform_goal_tracking_status(plays, attempts, frames)
+    out = transform_goal_tracking_status(plays, attempts, frames, sequences)
 
     # Small table (one row per NHL goal across all seasons, ~8k/season).
     # No partitioning; coalesce(1) so reads don't open many tiny files.

@@ -13,6 +13,7 @@ def _frames_df(spark):
             (_GAME, 274, _SEASON, 0, 100, 1200.0, 500.0, [{"player_id": 11}]),
             (_GAME, 274, _SEASON, 1, 101, 1201.0, 501.0, [{"player_id": 12}]),
             (_GAME, 300, _SEASON, 0, 200, 1300.0, 600.0, [{"player_id": 21}]),
+            (_GAME, 400, _SEASON, 0, 300, 1400.0, 700.0, []),
         ],
         """
         game_id long,
@@ -31,9 +32,10 @@ def test_one_row_per_goal_with_frame_count(spark):
     rows = transform_goal_tracking_sequences(_frames_df(spark)).collect()
     by_event = {row.event_id: row for row in rows}
 
-    assert set(by_event) == {274, 300}
+    assert set(by_event) == {274, 300, 400}
     assert by_event[274].frame_count == 3
     assert by_event[300].frame_count == 1
+    assert by_event[400].frame_count == 1
 
 
 def test_frames_sorted_by_frame_index(spark):
@@ -46,3 +48,26 @@ def test_frames_sorted_by_frame_index(spark):
     assert [frame.frame_index for frame in row.frames] == [0, 1, 2]
     assert [frame.timestamp_ds for frame in row.frames] == [100, 101, 102]
     assert row.frames[1].on_ice[0].player_id == 12
+
+
+def test_single_frame_goal_is_preserved(spark):
+    row = (
+        transform_goal_tracking_sequences(_frames_df(spark))
+        .where("event_id = 300")
+        .collect()[0]
+    )
+
+    assert row.frame_count == 1
+    assert len(row.frames) == 1
+    assert row.frames[0].timestamp_ds == 200
+
+
+def test_empty_on_ice_array_is_preserved(spark):
+    row = (
+        transform_goal_tracking_sequences(_frames_df(spark))
+        .where("event_id = 400")
+        .collect()[0]
+    )
+
+    assert row.frame_count == 1
+    assert row.frames[0].on_ice == []
