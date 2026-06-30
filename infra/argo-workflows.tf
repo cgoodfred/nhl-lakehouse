@@ -1,9 +1,3 @@
-resource "kubernetes_namespace" "argo" {
-  metadata {
-    name = "argo"
-  }
-}
-
 # Dedicated Postgres for the Argo Workflows archive. Sharing the existing
 # Lakekeeper Postgres would couple the two systems' lifecycles and risk
 # credential leakage; a second tiny instance is cheap on the Pi cluster.
@@ -15,7 +9,7 @@ resource "random_password" "argo_pg" {
 resource "kubernetes_secret" "argo_pg" {
   metadata {
     name      = "argo-workflows-pg-creds"
-    namespace = kubernetes_namespace.argo.metadata[0].name
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
   }
   data = {
     postgres-password   = random_password.argo_pg.result
@@ -30,7 +24,7 @@ resource "helm_release" "argo_pg" {
   repository = "https://charts.bitnami.com/bitnami"
   chart      = "postgresql"
   version    = "16.7.27"
-  namespace  = kubernetes_namespace.argo.metadata[0].name
+  namespace  = kubernetes_namespace.lakehouse.metadata[0].name
 
   values = [
     yamlencode({
@@ -69,15 +63,17 @@ resource "helm_release" "argo_pg" {
   ]
 }
 
-# Argo Workflows controller + server. Controller watches the `lakehouse`
-# namespace where Workflows submit SparkApplications; the server exposes the
-# UI and is reached via port-forward (no Ingress in V1 — see plan).
+# Argo Workflows controller + server, co-located with the SparkApplications
+# they orchestrate. singleNamespace=true makes the chart emit Roles instead of
+# ClusterRoles, which is the only way to actually scope the install to one
+# namespace — a separate `argo` namespace with workflowNamespaces=["lakehouse"]
+# still renders cluster-scoped RBAC and is no tighter in practice.
 resource "helm_release" "argo_workflows" {
   name       = "argo-workflows"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-workflows"
   version    = "0.45.5"
-  namespace  = kubernetes_namespace.argo.metadata[0].name
+  namespace  = kubernetes_namespace.lakehouse.metadata[0].name
 
   depends_on = [
     helm_release.argo_pg,
@@ -86,13 +82,7 @@ resource "helm_release" "argo_workflows" {
 
   values = [
     yamlencode({
-      # Single managed namespace keeps the controller's RBAC scope tight. All
-      # Workflows live in `lakehouse` alongside the SparkApplications they
-      # orchestrate; argo namespace only holds the platform.
-      singleNamespace = false
-      workflowNamespaces = [
-        kubernetes_namespace.lakehouse.metadata[0].name,
-      ]
+      singleNamespace = true
 
       controller = {
         # Persist completed Workflows to Postgres so /workflows shows history
@@ -102,7 +92,7 @@ resource "helm_release" "argo_workflows" {
           archiveTTL        = "30d"
           nodeStatusOffLoad = true
           postgresql = {
-            host      = "argo-workflows-pg-postgresql.${kubernetes_namespace.argo.metadata[0].name}.svc.cluster.local"
+            host      = "argo-workflows-pg-postgresql.${kubernetes_namespace.lakehouse.metadata[0].name}.svc.cluster.local"
             port      = 5432
             database  = "argo"
             tableName = "argo_workflows"
@@ -117,8 +107,8 @@ resource "helm_release" "argo_workflows" {
           }
         }
 
-        # Workflows submitted to `lakehouse` create SparkApplication CRDs. The
-        # workflow-runner ServiceAccount below has the matching RBAC.
+        # Workflows that create SparkApplication CRDs run as
+        # argo-workflow-runner — see Role/RoleBinding below.
         workflowDefaults = {
           spec = {
             serviceAccountName = "argo-workflow-runner"
@@ -139,7 +129,8 @@ resource "helm_release" "argo_workflows" {
 
       server = {
         # Port-forward access only; auth-mode=server bypasses login for local
-        # development. Lift to client + SSO when we expose via Ingress.
+        # development. Lift to client + SSO when we expose via Ingress. Chart
+        # defaults server.secure=false so the listener is plain HTTP.
         extraArgs = ["--auth-mode=server"]
         resources = {
           requests = {
@@ -153,8 +144,9 @@ resource "helm_release" "argo_workflows" {
         }
       }
 
-      # Workflow step pods inherit a default ServiceAccount per namespace; we
-      # provide our own (argo_workflow_runner) so disable the chart's default.
+      # We provide our own argo-workflow-runner ServiceAccount + Role below
+      # with explicit SparkApplication permissions; suppress the chart's
+      # default workflow RBAC so we don't end up with two parallel SAs.
       workflow = {
         rbac = {
           create = false
@@ -164,10 +156,9 @@ resource "helm_release" "argo_workflows" {
   ]
 }
 
-# ServiceAccount that Workflow steps run as in the `lakehouse` namespace.
-# Workflow steps that use the `resource:` action to create SparkApplication
-# CRDs need permissions on the operator's CRD set; pod/log access is for the
-# UI to surface step logs.
+# ServiceAccount that Workflow steps run as. Workflow steps that use the
+# `resource:` action to create SparkApplication CRDs need permissions on the
+# operator's CRD set; pod/log access is for the UI to surface step logs.
 resource "kubernetes_service_account" "argo_workflow_runner" {
   metadata {
     name      = "argo-workflow-runner"

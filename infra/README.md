@@ -99,14 +99,14 @@ Verify with `curl -sf http://localhost:8181/management/v1/warehouse -H "Authoriz
 
 ## Argo Workflows UI
 
-Workflow orchestration runs in the `argo` namespace; Workflows themselves submit to `lakehouse` and create SparkApplication CRDs there. The UI is reached via port-forward (no Ingress in V1):
+Workflow orchestration is co-located in the `lakehouse` namespace alongside the SparkApplications it submits. The UI is reached via port-forward (no Ingress in V1):
 
 ```bash
-kubectl port-forward -n argo svc/argo-workflows-server 2746:2746
-# then open https://localhost:2746
+kubectl port-forward -n lakehouse svc/argo-workflows-server 2746:2746
+# then open http://localhost:2746
 ```
 
-Auth is `--auth-mode=server`, so the UI is unauthenticated when accessed via port-forward. Lift to client + SSO before exposing via Ingress.
+The chart default is `server.secure=false`, so the listener is plain HTTP. Auth is `--auth-mode=server`, which bypasses login for local development. Lift to `--secure` + `--auth-mode=client` with SSO before exposing via Ingress.
 
 ## State
 
