@@ -119,7 +119,7 @@ resource "kubernetes_deployment" "viz" {
             }
             limits = {
               cpu    = "1000m"
-              memory = "1Gi"
+              memory = "2Gi"
             }
           }
         }
