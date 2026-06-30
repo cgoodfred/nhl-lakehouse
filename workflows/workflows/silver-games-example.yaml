@@ -1,0 +1,30 @@
+# One-shot Workflow that exercises the silver-single-table template for
+# the silver-games job. Use this to smoke-test the Argo + Spark Operator
+# integration after the install:
+#
+#   argo submit -n lakehouse workflows/workflows/silver-games-example.yaml --watch
+#
+# The Workflow creates a SparkApplication named like silver-games-<hash>,
+# then blocks until that SparkApplication reaches COMPLETED. Expect a few
+# minutes wall-clock matching what `kubectl apply -f spark/k8s/silver/
+# silver-games.yaml` already takes.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: silver-games-
+  namespace: lakehouse
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      steps:
+        - - name: silver-games
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - name: tier
+                  value: silver
+                - name: table
+                  value: games
