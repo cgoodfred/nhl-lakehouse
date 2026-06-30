@@ -4,6 +4,7 @@ import os
 import socket
 import time
 
+import requests
 from pyiceberg.catalog.rest import RestCatalog
 
 _IN_CLUSTER = bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
@@ -21,18 +22,31 @@ if not _IN_CLUSTER:
     socket.getaddrinfo = _patched_getaddrinfo
 
 
+def _catalog_token() -> str:
+    response = requests.post(
+        os.environ["LAKEKEEPER_OAUTH2_SERVER_URI"],
+        data={
+            "grant_type": "client_credentials",
+            "client_id": os.environ["LAKEKEEPER_CLIENT_ID"],
+            "client_secret": os.environ["LAKEKEEPER_CLIENT_SECRET"],
+            "scope": os.environ.get("LAKEKEEPER_SCOPE", "lakekeeper"),
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    token = response.json().get("access_token")
+    if not token:
+        raise RuntimeError("OAuth token response did not include access_token")
+    return token
+
+
 def catalog() -> RestCatalog:
     return RestCatalog(
         "nhl",
         **{
             "uri": os.environ["LAKEKEEPER_URI"],
             "warehouse": os.environ.get("LAKEKEEPER_WAREHOUSE", "nhl"),
-            "credential": (
-                f"{os.environ['LAKEKEEPER_CLIENT_ID']}:"
-                f"{os.environ['LAKEKEEPER_CLIENT_SECRET']}"
-            ),
-            "scope": os.environ.get("LAKEKEEPER_SCOPE", "lakekeeper"),
-            "oauth2-server-uri": os.environ["LAKEKEEPER_OAUTH2_SERVER_URI"],
+            "token": _catalog_token(),
             "s3.endpoint": os.environ["S3_ENDPOINT"],
             "s3.access-key-id": os.environ["S3_ACCESS_KEY"],
             "s3.secret-access-key": os.environ["S3_SECRET_KEY"],
