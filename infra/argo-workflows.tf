@@ -98,14 +98,14 @@ resource "helm_release" "argo_workflows" {
         # Persist completed Workflows to Postgres so /workflows shows history
         # past the in-memory retention window.
         persistence = {
-          archive            = true
-          archiveTTL         = "30d"
-          nodeStatusOffLoad  = true
+          archive           = true
+          archiveTTL        = "30d"
+          nodeStatusOffLoad = true
           postgresql = {
-            host         = "argo-workflows-pg-postgresql.${kubernetes_namespace.argo.metadata[0].name}.svc.cluster.local"
-            port         = 5432
-            database     = "argo"
-            tableName    = "argo_workflows"
+            host      = "argo-workflows-pg-postgresql.${kubernetes_namespace.argo.metadata[0].name}.svc.cluster.local"
+            port      = 5432
+            database  = "argo"
+            tableName = "argo_workflows"
             userNameSecret = {
               name = kubernetes_secret.argo_pg.metadata[0].name
               key  = "postgresql-user"
