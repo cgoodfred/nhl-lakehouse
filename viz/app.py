@@ -205,18 +205,6 @@ def _empty_tracking_status_arrow():
     })
 
 
-def _optional_int(value) -> int | None:
-    if value is None:
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(number):
-        return None
-    return int(number)
-
-
 @st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
 def _shots_arrow():
     try:
@@ -530,48 +518,8 @@ def _fetch_tracking_http(url: str):
     return resp.json()
 
 
-@st.cache_data(ttl=3600, show_spinner="Loading tracking frames from Iceberg…")
-def _fetch_tracking_silver(
-    season: int,
-    game_id: int,
-    event_id: int,
-    expected_frames: int | None = None,
-):
-    """Load tracking frames for one goal from silver.tracking_frames and
-    convert back to the NHL on-the-wire JSON shape that _tracking_animation
-    expects (one dict per frame with `timeStamp` + `onIce` map).
-
-    Filter is partition-pruned on season + key-pruned on (game_id, event_id)
-    so this scans only the relevant Parquet file(s), not the whole 1M-row
-    table."""
-    from pyiceberg.expressions import And, EqualTo
-
-    row_filter = And(
-        EqualTo("season",   season),
-        And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
-    )
-    limit = expected_frames + 5 if expected_frames is not None else None
-    arrow = load_table_arrow(
-        "silver.tracking_frames",
-        row_filter=row_filter,
-        selected_fields=(
-            "frame_index",
-            "timestamp_ds",
-            "puck_x_in",
-            "puck_y_in",
-            "on_ice",
-        ),
-        limit=limit,
-    )
-    rows = arrow.to_pylist()
-    if not rows:
-        raise RuntimeError(
-            f"No silver.tracking_frames rows found for game_id={game_id}, event_id={event_id}"
-        )
-    # Silver doesn't preserve the upstream onIce dict KEYS — we keep only
-    # the player_id which is what _frame_team_data actually reads. Re-key
-    # by player_id (string-stringified to match the JSON shape). The puck
-    # gets key "1" with the empty-string fields the upstream uses.
+def _tracking_rows_to_frames(rows: list[dict]) -> list[dict]:
+    """Convert gold/silver tracking frame rows to the NHL on-the-wire shape."""
     rows.sort(key=lambda r: r["frame_index"])
     out = []
     for r in rows:
@@ -601,6 +549,31 @@ def _fetch_tracking_silver(
     return out
 
 
+@st.cache_data(ttl=3600, show_spinner="Loading tracking sequence from Iceberg…")
+def _fetch_tracking_gold_sequence(season: int, game_id: int, event_id: int):
+    """Load one serving-shaped animation row from gold.goal_tracking_sequences."""
+    from pyiceberg.expressions import And, EqualTo
+
+    row_filter = And(
+        EqualTo("season", season),
+        And(EqualTo("game_id", game_id), EqualTo("event_id", event_id)),
+    )
+    arrow = load_table_arrow(
+        "gold.goal_tracking_sequences",
+        row_filter=row_filter,
+        selected_fields=("frames",),
+        limit=1,
+        attempts=2,
+    )
+    rows = arrow.to_pylist()
+    if not rows:
+        raise RuntimeError(
+            "No gold.goal_tracking_sequences row found for "
+            f"game_id={game_id}, event_id={event_id}"
+        )
+    return _tracking_rows_to_frames(rows[0]["frames"] or [])
+
+
 # Status → icon mapping for the goal table.
 STATUS_ICONS = {
     "available":              "▶",
@@ -608,15 +581,9 @@ STATUS_ICONS = {
     "fetch_failed":           "⚠",
     "no_url":                 "—",
     "not_attempted":          "—",
+    "pending_gold_sequence_rebuild": "—",
     "pending_silver_rebuild": "—",
 }
-# Statuses where the tracking panel should attempt to render an animation
-# (either from silver or via the HTTP fallback). Everything else gets a
-# clean text message instead of an animation attempt.
-STATUS_HAS_DATA      = {"available"}
-STATUS_HTTP_FALLBACK = {"not_attempted", "pending_silver_rebuild"}
-
-
 # Tracking-panel storytelling constants.
 TRAIL_FRAMES = 30            # ~3 seconds of puck history at the 10Hz feed
 TRAIL_COLOR = "#ffce00"      # gold; reads well against ice + team colors
@@ -1373,7 +1340,7 @@ def main():
         st.markdown("**Goals this season**")
         st.caption(
             "Click a row to open the tracking view below. "
-            "▶ available · ⊘ no tracking · ⚠ fetch failed · — not yet ingested"
+            "▶ available · ⊘ no tracking · ⚠ fetch failed · — rebuild pending/not ingested"
         )
         shots_for_table = shots.copy()
         shots_for_table[""] = shots_for_table["tracking_status"].map(
@@ -1427,34 +1394,21 @@ def main():
                 f"the next ingest run with `--retry-transient`.\n\n"
                 f"`{err}`"
             )
+        elif status == "pending_gold_sequence_rebuild":
+            st.info(
+                "Tracking frames exist in Silver, but the Gold animation sequence "
+                "table has not been rebuilt for this goal yet. Run "
+                "`gold-goal-tracking-sequences`, then rebuild `gold-goal-tracking-status`."
+            )
         elif status == "available":
             # season comes from the sidebar filter, not the row — every shot
             # in `shots` matches that filter, so it's the same value either way.
-            expected_frames = _optional_int(getattr(sel, "tracking_frame_count", None))
             try:
-                frames = _fetch_tracking_silver(
-                    int(season),
-                    int(sel.game_id),
-                    int(sel.event_id),
-                    expected_frames,
+                frames = _fetch_tracking_gold_sequence(
+                    int(season), int(sel.game_id), int(sel.event_id),
                 )
             except Exception as exc:
-                silver_error = exc
-                if sel.ppt_replay_url:
-                    try:
-                        frames = _fetch_tracking_http(sel.ppt_replay_url)
-                        st.caption(
-                            "Loaded tracking from the NHL replay URL because the "
-                            "stored Silver frames were temporarily unavailable."
-                        )
-                    except Exception as http_exc:
-                        st.warning(
-                            f"{lakehouse_error_message('silver.tracking_frames', silver_error)}"
-                            f"\n\nLive fallback also failed for {sel.ppt_replay_url}.\n\n"
-                            f"`{http_exc.__class__.__name__}: {http_exc}`"
-                        )
-                else:
-                    st.warning(lakehouse_error_message("silver.tracking_frames", silver_error))
+                st.warning(lakehouse_error_message("gold.goal_tracking_sequences", exc))
         else:
             # not_attempted or pending_silver_rebuild — fall back to a live
             # HTTP fetch from wsr.nhle.com so the viz keeps working through

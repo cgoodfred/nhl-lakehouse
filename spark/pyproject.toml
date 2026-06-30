@@ -49,7 +49,7 @@ select = [
 # do `from games import ...` (silver/* on sys.path via conftest). Declare
 # the module names explicitly so isort groups them as first-party rather
 # than alphabetizing them in with pyspark.
-known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots", "tracking_ingest", "tracking_frames", "goal_tracking_status"]
+known-first-party = ["common", "games", "plays", "players", "game_rosters", "teams", "player_shots", "tracking_ingest", "tracking_frames", "goal_tracking_status", "goal_tracking_sequences"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
