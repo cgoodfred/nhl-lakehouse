@@ -194,7 +194,7 @@ def _table_health() -> SectionData:
 @st.cache_data(ttl=60, show_spinner="Loading seasons...")
 def _seasons() -> SectionData:
     try:
-        arrow = load_table_arrow("silver.games")
+        arrow = load_table_arrow("silver.games", selected_fields=("season",))
         if "season" not in arrow.column_names or arrow.num_rows == 0:
             return _section([])
         seasons = sorted(
@@ -208,7 +208,7 @@ def _seasons() -> SectionData:
 @st.cache_data(ttl=60, show_spinner="Loading tracking attempts...")
 def _tracking_attempts() -> SectionData:
     try:
-        arrow = load_table_arrow("silver.tracking_attempts")
+        arrow = load_table_arrow("silver.tracking_attempts", selected_fields=("status",))
         if arrow.num_rows == 0:
             return _section(pd.DataFrame(columns=["status", "attempts"]))
         df = arrow.select(["status"]).to_pandas()
@@ -225,7 +225,10 @@ def _tracking_attempts() -> SectionData:
 @st.cache_data(ttl=60, show_spinner="Loading tracking coverage...")
 def _tracking_coverage() -> SectionData:
     try:
-        arrow = load_table_arrow("gold.goal_tracking_status")
+        arrow = load_table_arrow(
+            "gold.goal_tracking_status",
+            selected_fields=("tracking_status",),
+        )
         if arrow.num_rows == 0:
             return _section(pd.DataFrame(columns=["tracking_status", "goals"]))
         df = arrow.select(["tracking_status"]).to_pandas()

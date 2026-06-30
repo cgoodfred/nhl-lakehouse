@@ -20,7 +20,6 @@ import streamlit as st
 
 from lib import (
     CARD_BASE_STYLE,
-    catalog,
     fmt_season,
     lakehouse_error_message,
     load_table_arrow,
@@ -208,7 +207,32 @@ def _empty_tracking_status_arrow():
 @st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
 def _shots_arrow():
     try:
-        return load_table_arrow("gold.player_shots")
+        return load_table_arrow(
+            "gold.player_shots",
+            selected_fields=(
+                "event_id",
+                "game_id",
+                "game_date",
+                "game_type",
+                "home_team_abbrev",
+                "season",
+                "player_id",
+                "player_name",
+                "player_headshot",
+                "team_abbrev",
+                "period_number",
+                "period_type",
+                "time_in_period",
+                "x_coord",
+                "y_coord",
+                "shot_type",
+                "strength_state",
+                "is_empty_net",
+                "home_score",
+                "away_score",
+                "ppt_replay_url",
+            ),
+        )
     except Exception as exc:
         st.error(lakehouse_error_message("gold.player_shots", exc))
         st.stop()
@@ -223,7 +247,18 @@ def _tracking_status_arrow():
     per-row status icon + the tracking panel knows whether to read from
     silver, fall back to live HTTP, or render a clean 'no data' message."""
     try:
-        return load_table_arrow("gold.goal_tracking_status", attempts=2)
+        return load_table_arrow(
+            "gold.goal_tracking_status",
+            selected_fields=(
+                "season",
+                "game_id",
+                "event_id",
+                "tracking_status",
+                "frame_count",
+                "error_message",
+            ),
+            attempts=2,
+        )
     except Exception:
         # Gold table may not exist yet on a fresh deploy — viz still works
         # via the live-HTTP fallback in that case. Empty Arrow with the
@@ -244,12 +279,10 @@ def _shots_connection():
 def _player_meta() -> dict[int, dict]:
     """Map playerId -> {name, position} for headers and legend rendering."""
     try:
-        cat = catalog()
-    except Exception:
-        return {}
-
-    try:
-        arrow = cat.load_table("silver.players").scan().to_arrow()
+        arrow = load_table_arrow(
+            "silver.players",
+            selected_fields=("player_id", "first_name", "last_name", "position_code"),
+        )
     except Exception:
         return {}
     df = arrow.to_pandas()
@@ -506,7 +539,7 @@ def _to_ft(x_in: float, y_in: float) -> tuple[float, float]:
     )
 
 
-@st.cache_data(ttl=3600, show_spinner="Fetching tracking frames from NHL…")
+@st.cache_data(ttl=3600, max_entries=50, show_spinner="Fetching tracking frames from NHL…")
 def _fetch_tracking_http(url: str):
     """Live fetch from wsr.nhle.com. Fallback path for goals whose tracking
     hasn't been ingested to silver yet (status='not_attempted') or where
@@ -549,7 +582,11 @@ def _tracking_rows_to_frames(rows: list[dict]) -> list[dict]:
     return out
 
 
-@st.cache_data(ttl=3600, show_spinner="Loading tracking sequence from Iceberg…")
+@st.cache_data(
+    ttl=3600,
+    max_entries=50,
+    show_spinner="Loading tracking sequence from Iceberg…",
+)
 def _fetch_tracking_gold_sequence(season: int, game_id: int, event_id: int):
     """Load one serving-shaped animation row from gold.goal_tracking_sequences."""
     from pyiceberg.expressions import And, EqualTo

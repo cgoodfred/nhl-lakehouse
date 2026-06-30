@@ -4,7 +4,6 @@ import os
 import socket
 import time
 
-import streamlit as st
 from pyiceberg.catalog.rest import RestCatalog
 
 _IN_CLUSTER = bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
@@ -22,7 +21,6 @@ if not _IN_CLUSTER:
     socket.getaddrinfo = _patched_getaddrinfo
 
 
-@st.cache_resource
 def catalog() -> RestCatalog:
     return RestCatalog(
         "nhl",
