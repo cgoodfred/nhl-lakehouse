@@ -84,7 +84,17 @@ resource "helm_release" "argo_workflows" {
     yamlencode({
       singleNamespace = true
 
+      # Without these the chart still renders aggregate ClusterRoles plus
+      # ClusterRoleBindings for ClusterWorkflowTemplate support — defeating
+      # the singleNamespace=true scoping. We don't use ClusterWorkflowTemplates
+      # (Workflows + WorkflowTemplates in lakehouse cover the cases we want),
+      # so disabling both knocks the install down to Roles only.
+      createAggregateRoles = false
+
       controller = {
+        clusterWorkflowTemplates = {
+          enabled = false
+        }
         # Persist completed Workflows to Postgres so /workflows shows history
         # past the in-memory retention window.
         persistence = {
@@ -128,6 +138,9 @@ resource "helm_release" "argo_workflows" {
       }
 
       server = {
+        clusterWorkflowTemplates = {
+          enabled = false
+        }
         # Port-forward access only; auth-mode=server bypasses login for local
         # development. Lift to client + SSO when we expose via Ingress. Chart
         # defaults server.secure=false so the listener is plain HTTP.
