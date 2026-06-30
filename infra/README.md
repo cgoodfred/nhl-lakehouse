@@ -97,6 +97,17 @@ curl -X POST http://localhost:8181/management/v1/warehouse \
 
 Verify with `curl -sf http://localhost:8181/management/v1/warehouse -H "Authorization: Bearer $TOKEN" | jq .`.
 
+## Argo Workflows UI
+
+Workflow orchestration is co-located in the `lakehouse` namespace alongside the SparkApplications it submits. The UI is reached via port-forward (no Ingress in V1):
+
+```bash
+kubectl port-forward -n lakehouse svc/argo-workflows-server 2746:2746
+# then open http://localhost:2746
+```
+
+The chart default is `server.secure=false`, so the listener is plain HTTP. Auth is `--auth-mode=server`, which bypasses login for local development. Lift to `--secure` + `--auth-mode=client` with SSO before exposing via Ingress.
+
 ## State
 
 State persists as a Kubernetes Secret named `tfstate-default-lakehouse-state` in the `lakehouse` namespace. Both local applies and the in-cluster runner read and write through the same backend.
