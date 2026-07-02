@@ -51,7 +51,9 @@ DAG WorkflowTemplate that rebuilds the core PBP silver tier — `silver-games` r
 
 **Does NOT include `silver-tracking-frames`.** That table sits in a separate pipeline branch (`bronze-tracking-ingest` → `silver-tracking-frames` → gold tracking tables) whose upstream is the Python PPT bronze fetch, not the Go PBP ingest. That branch gets its own DAG in V2 alongside converting `bronze-tracking-ingest` to a WorkflowTemplate.
 
-Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly (games/plays at 2g, players/game_rosters/teams at 1g). `parallelism: 2` caps concurrent tasks so the fan-out doesn't blow the 10-CPU `lakehouse-quota`. The math is in the template header comment — with driver 2c + executors sized per manifest, worst-case pair (plays + game_rosters) uses 8 CPU, leaving ~2 CPU headroom for steady-state workloads. Bump when quota widens or driver sizes shrink.
+Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly (games/plays at 2g, players/game_rosters/teams at 1g). `parallelism: 1` serializes the DAG because the naive CPU math missed two costs — each Argo `resource:` step costs ~500m CPU on its own polling pod, and Spark Operator leaves completed driver pods around hoarding quota. First real run of the DAG (silver-full-rebuild-8dzkl) hit `SubmissionFailed` on players AND teams because their drivers requested 2c against a 9300m-used quota. The template header comment shows the corrected CPU accounting. Bump back to 2+ once the Pi quota widens or driver sizes shrink.
+
+`silver-single-table.yaml` sets `timeToLiveSeconds: 60` on the inlined SparkApplication so completed / failed drivers get GC'd 60 seconds after any terminal state. Without this, drivers linger indefinitely, and even parallelism: 1 would eventually starve on lingering completions across runs.
 
 ### `workflows/silver-games-example.yaml`
 
@@ -63,16 +65,29 @@ One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test
 
 ## Cleanup
 
-Argo doesn't garbage-collect the SparkApplications its Workflows create. Completed runs accumulate as their named CRDs. Filter by the Workflow-managed label so the query only targets Workflow output — a blanket "delete every COMPLETED SparkApplication in lakehouse" would also catch the imperatively-applied `silver-games`, `silver-plays`, etc.:
+Under normal operation you don't need to clean up — `silver-single-table.yaml` sets `timeToLiveSeconds: 60` on the inlined SparkApplication, so completed AND failed CRDs (with their driver pods) get GC'd automatically 60 seconds after any terminal state.
+
+Manual cleanup is only for the edge cases: aborted workflows that never reached a terminal state, stuck SparkApplications the operator can't move forward, or archaeological cleanup after operator/quota misconfiguration. Filter by the Workflow-managed label so the query only targets Workflow output — a blanket "delete every COMPLETED SparkApplication in lakehouse" would also catch the imperatively-applied `silver-games`, `silver-plays`, etc.:
 
 ```bash
+# Drop every Argo-managed SparkApplication regardless of state
+kubectl delete sparkapplication -n lakehouse \
+  -l app.kubernetes.io/managed-by=argo-workflows
+
+# Or scope tighter to just the terminal ones (rarely needed with TTL=60s)
 kubectl get sparkapplication -n lakehouse \
   -l app.kubernetes.io/managed-by=argo-workflows -o json \
-  | jq -r '.items[] | select(.status.applicationState.state == "COMPLETED") | .metadata.name' \
+  | jq -r '.items[] | select(.status.applicationState.state == "COMPLETED" or .status.applicationState.state == "FAILED") | .metadata.name' \
   | xargs -r kubectl delete sparkapplication -n lakehouse
 ```
 
-V2 may add `ttlSecondsAfterFinished` to the inlined SparkApplication template, or an `onExit:` cleanup step at the Workflow level.
+To drop a specific workflow (both the Workflow object AND any lingering SparkApplications it created):
+
+```bash
+argo delete -n lakehouse <workflow-name>
+kubectl delete sparkapplication -n lakehouse \
+  -l workflows.argoproj.io/workflow=<workflow-name>
+```
 
 ## Out of scope (V1)
 

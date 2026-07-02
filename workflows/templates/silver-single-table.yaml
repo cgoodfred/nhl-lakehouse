@@ -85,6 +85,15 @@ spec:
             sparkVersion: "3.5.7"
             restartPolicy:
               type: Never
+            # Auto-delete the SparkApplication (and its driver pod) 60s after
+            # any terminal state. Otherwise completed and failed drivers linger
+            # forever, hoarding CPU quota — with a 10-CPU namespace budget and
+            # each driver holding 2c, three lingering drivers alone consume
+            # 60% of the quota and starve later DAG nodes into quota-exceeded
+            # SubmissionFailed errors. Argo returns from the resource step as
+            # soon as it sees COMPLETED/FAILED, well before the 60s TTL fires,
+            # so this cleanup doesn't race the workflow status check.
+            timeToLiveSeconds: 60
             driver:
               cores: 2
               coreLimit: "2"
