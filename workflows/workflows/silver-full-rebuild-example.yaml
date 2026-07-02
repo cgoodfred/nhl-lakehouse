@@ -4,10 +4,12 @@
 #
 #   argo submit -n lakehouse workflows/workflows/silver-full-rebuild-example.yaml --watch
 #
-# Wall-clock: ~ games + two waves of the fan-out. With parallelism: 2 on the
-# DAG template, two of the four fan-out jobs run concurrently and the other
-# two run in a second wave. On the Pi cluster expect 15-25 minutes total for
-# the current data volume.
+# Wall-clock: DAG runs one task at a time (parallelism: 1). games first,
+# then plays -> players -> game_rosters -> teams sequentially. On the Pi
+# cluster expect 20-30 minutes total for the current data volume. Faster
+# fan-out is possible once the quota widens or driver sizes shrink — see
+# the header comment in workflows/templates/silver-full-rebuild.yaml for
+# the CPU accounting that forced parallelism: 1.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:

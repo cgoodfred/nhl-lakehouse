@@ -25,22 +25,34 @@
 #   game_rosters   1c × 2 executors, 1g
 #   teams          1c × 1 executor,  1g
 #
-# parallelism: 2 caps the fan-out so we stay under the lakehouse-quota CPU
-# ceiling (10 CPU total, ~2 CPU already booked by viz + lakekeeper + argo +
-# spark-operator + seaweedfs). Per-SparkApplication CPU cost (driver 2c +
-# executors sized per manifest):
+# parallelism: 1 serializes the fan-out because the naive CPU math missed
+# two costs:
 #
-#   games         4c    plays         4c
-#   players       3c    game_rosters  4c
-#   teams         3c
+#   1. Each Argo `resource:` step spawns an argoexec pod that itself
+#      consumes ~500m CPU (limits) for the polling loop that watches the
+#      SparkApplication status. Missed this in the initial design.
+#   2. Spark Operator leaves completed / failed SparkApplication drivers
+#      around by default. In a fan-out, three "done but not cleaned up"
+#      drivers can hoard 6c of the 10c quota, starving the next task.
+#      silver-single-table.yaml now sets timeToLiveSeconds: 60 to auto-
+#      clean, but even with that, concurrent tasks still race on the peak.
 #
-# Worst case with parallelism=3 is plays + game_rosters + players = 11 CPU
-# which exceeds the 10-CPU quota, and K8s would start rejecting executor
-# pods mid-job. parallelism=2 caps the worst case at 8c (plays + rosters),
-# leaving headroom for steady state. The four downstream jobs run in two
-# waves of two rather than one wave of four; wall-clock cost is one extra
-# pass through the longest fan-out job. Bump when the quota widens or
-# driver sizes come down.
+# Corrected per-concurrent-task CPU cost (Argo step + Spark driver + execs):
+#
+#   games         4500m    plays         4500m
+#   players       3500m    game_rosters  4500m
+#   teams         3500m
+#
+# Plus ~2000m steady-state (viz + lakekeeper + argo controller + Postgres
+# + spark-operator + seaweedfs). Serialized worst-case = 4500m + 2000m =
+# 6500m, comfortably inside the 10-CPU quota. Real-world verification
+# (silver-full-rebuild-8dzkl) showed parallelism=2 hitting SubmissionFailed
+# for silver-players AND silver-teams because their driver pods requested
+# 2c against a 9300m-used quota.
+#
+# Wall-clock cost of parallelism=1: the four downstream jobs run sequentially
+# instead of two-at-a-time. Bump back to 2 when either the quota widens (Pi
+# cluster expansion) or driver sizes shrink (2c -> 1c per driver).
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
@@ -50,7 +62,7 @@ spec:
   entrypoint: dag
   templates:
     - name: dag
-      parallelism: 2
+      parallelism: 1
       dag:
         tasks:
           - name: silver-games

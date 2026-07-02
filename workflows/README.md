@@ -51,7 +51,9 @@ DAG WorkflowTemplate that rebuilds the core PBP silver tier — `silver-games` r
 
 **Does NOT include `silver-tracking-frames`.** That table sits in a separate pipeline branch (`bronze-tracking-ingest` → `silver-tracking-frames` → gold tracking tables) whose upstream is the Python PPT bronze fetch, not the Go PBP ingest. That branch gets its own DAG in V2 alongside converting `bronze-tracking-ingest` to a WorkflowTemplate.
 
-Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly (games/plays at 2g, players/game_rosters/teams at 1g). `parallelism: 2` caps concurrent tasks so the fan-out doesn't blow the 10-CPU `lakehouse-quota`. The math is in the template header comment — with driver 2c + executors sized per manifest, worst-case pair (plays + game_rosters) uses 8 CPU, leaving ~2 CPU headroom for steady-state workloads. Bump when quota widens or driver sizes shrink.
+Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly (games/plays at 2g, players/game_rosters/teams at 1g). `parallelism: 1` serializes the DAG because the naive CPU math missed two costs — each Argo `resource:` step costs ~500m CPU on its own polling pod, and Spark Operator leaves completed driver pods around hoarding quota. First real run of the DAG (silver-full-rebuild-8dzkl) hit `SubmissionFailed` on players AND teams because their drivers requested 2c against a 9300m-used quota. The template header comment shows the corrected CPU accounting. Bump back to 2+ once the Pi quota widens or driver sizes shrink.
+
+`silver-single-table.yaml` sets `timeToLiveSeconds: 60` on the inlined SparkApplication so completed / failed drivers get GC'd 60 seconds after any terminal state. Without this, drivers linger indefinitely, and even parallelism: 1 would eventually starve on lingering completions across runs.
 
 ### `workflows/silver-games-example.yaml`
 
