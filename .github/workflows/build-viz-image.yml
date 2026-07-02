@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   packages: write
+  pull-requests: write
 
 concurrency:
   group: build-viz-image
@@ -43,3 +44,56 @@ jobs:
             ghcr.io/cgoodfred/nhl-lakehouse/viz:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  open-image-bump-pr:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update viz image tag
+        id: update
+        env:
+          IMAGE: ghcr.io/cgoodfred/nhl-lakehouse/viz:${{ github.sha }}
+        run: |
+          perl -0pi -e 's#image\s+=\s+"ghcr\.io/cgoodfred/nhl-lakehouse/viz:[^"]+"#image             = "$ENV{IMAGE}"#' infra/viz.tf
+
+          if git diff --quiet -- infra/viz.tf; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open image bump PR
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: chore/pin-viz-image
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="${SHORT_SHA:0:7}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add infra/viz.tf
+          git commit -m "chore(infra): pin viz image to ${SHORT_SHA}"
+          git push --force-with-lease origin "$BRANCH"
+
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH" \
+              --title "chore(infra): pin viz image to ${SHORT_SHA}" \
+              --body "Pins the viz Deployment image to the image built from ${GITHUB_SHA}."
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore(infra): pin viz image to ${SHORT_SHA}" \
+              --body "Pins the viz Deployment image to the image built from ${GITHUB_SHA}."
+          fi
