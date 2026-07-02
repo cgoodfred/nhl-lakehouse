@@ -1,6 +1,9 @@
-# Full silver-tier rebuild as an Argo DAG. All five silver jobs, in
-# dependency order, using the silver-single-table WorkflowTemplate as the
-# per-node body.
+# CORE PBP silver-tier rebuild as an Argo DAG. Covers the five silver jobs
+# that derive from bronze play-by-play (games/plays/players/game_rosters/
+# teams). Does NOT cover silver-tracking-frames — that lives in the tracking
+# pipeline branch (bronze-tracking-ingest -> silver-tracking-frames -> gold
+# tracking tables), which is a separate DAG scheduled for V2 alongside
+# converting bronze-tracking-ingest to a WorkflowTemplate.
 #
 # DAG shape (verified against the actual spark/jobs/silver/*.py source
 # reads, not assumed):
@@ -16,11 +19,11 @@
 #
 # Per-node executor sizing mirrors the existing spark/k8s/silver/*.yaml
 # manifests so behavior matches what `kubectl apply` produces today:
-#   games          1c × 2 executors
-#   plays          2c × 1 executor  (heavier per-executor for the explode)
-#   players        1c × 1 executor
-#   game_rosters   1c × 2 executors
-#   teams          1c × 1 executor
+#   games          1c × 2 executors, 2g each
+#   plays          2c × 1 executor,  2g   (heavier per-executor for the explode)
+#   players        1c × 1 executor,  1g
+#   game_rosters   1c × 2 executors, 1g
+#   teams          1c × 1 executor,  1g
 #
 # parallelism: 2 caps the fan-out so we stay under the lakehouse-quota CPU
 # ceiling (10 CPU total, ~2 CPU already booked by viz + lakekeeper + argo +
@@ -92,7 +95,7 @@ spec:
                 - {name: executor_cores,       value: "1"}
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "1"}
-                - {name: executor_memory,      value: "2g"}
+                - {name: executor_memory,      value: "1g"}
 
           - name: silver-game-rosters
             dependencies: [silver-games]
@@ -107,7 +110,7 @@ spec:
                 - {name: executor_cores,       value: "1"}
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "2"}
-                - {name: executor_memory,      value: "2g"}
+                - {name: executor_memory,      value: "1g"}
 
           - name: silver-teams
             dependencies: [silver-games]
@@ -122,4 +125,4 @@ spec:
                 - {name: executor_cores,       value: "1"}
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "1"}
-                - {name: executor_memory,      value: "2g"}
+                - {name: executor_memory,      value: "1g"}

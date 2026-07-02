@@ -1,12 +1,13 @@
-# One-shot Workflow that rebuilds the full silver tier via the
-# silver-full-rebuild DAG.
+# One-shot Workflow that rebuilds the core PBP silver tier via the
+# silver-full-rebuild DAG (games/plays/players/game_rosters/teams — not
+# silver-tracking-frames, which lives in its own pipeline branch).
 #
 #   argo submit -n lakehouse workflows/workflows/silver-full-rebuild-example.yaml --watch
 #
-# Wall-clock: ~ max(games) + max(plays, players, game_rosters, teams). With
-# parallelism: 3 on the DAG template, three of the four fan-out jobs run
-# concurrently and the fourth backfills as a slot frees. On the Pi cluster
-# expect 15-25 minutes total for the current data volume.
+# Wall-clock: ~ games + two waves of the fan-out. With parallelism: 2 on the
+# DAG template, two of the four fan-out jobs run concurrently and the other
+# two run in a second wave. On the Pi cluster expect 15-25 minutes total for
+# the current data volume.
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
