@@ -49,7 +49,7 @@ Each generated SparkApplication is stamped with labels for cleanup + debugging: 
 
 DAG WorkflowTemplate that rebuilds the entire silver tier. `silver-games` runs first; then `silver-plays`, `silver-players`, `silver-game-rosters`, and `silver-teams` fan out in parallel — each depending only on `silver-games`. `silver-teams` was verified against `spark/jobs/silver/teams.py` to read only from `silver.games`, so it belongs in the fan-out, not as a terminal sequential step.
 
-Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly. `parallelism: 3` caps concurrent tasks so the fan-out doesn't blow the lakehouse-quota CPU ceiling (10 CPU total, shared with viz + lakekeeper + argo controller + Postgres).
+Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly. `parallelism: 2` caps concurrent tasks so the fan-out doesn't blow the 10-CPU `lakehouse-quota`. The math is in the template header comment — with driver 2c + executors sized per manifest, worst-case pair (plays + game_rosters) uses 8 CPU, leaving ~2 CPU headroom for steady-state workloads. Bump when quota widens or driver sizes shrink.
 
 ### `workflows/silver-games-example.yaml`
 
