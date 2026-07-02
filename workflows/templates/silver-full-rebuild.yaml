@@ -1,0 +1,128 @@
+# CORE PBP silver-tier rebuild as an Argo DAG. Covers the five silver jobs
+# that derive from bronze play-by-play (games/plays/players/game_rosters/
+# teams). Does NOT cover silver-tracking-frames — that lives in the tracking
+# pipeline branch (bronze-tracking-ingest -> silver-tracking-frames -> gold
+# tracking tables), which is a separate DAG scheduled for V2 alongside
+# converting bronze-tracking-ingest to a WorkflowTemplate.
+#
+# DAG shape (verified against the actual spark/jobs/silver/*.py source
+# reads, not assumed):
+#
+#   silver-games ──┬─→ silver-plays
+#                  ├─→ silver-players
+#                  ├─→ silver-game-rosters
+#                  └─→ silver-teams
+#
+# All four downstream jobs depend on silver-games only. silver-teams derives
+# from silver.games via a distinct-teams aggregation (verified from
+# spark/jobs/silver/teams.py); it does NOT need plays/players/game_rosters.
+#
+# Per-node executor sizing mirrors the existing spark/k8s/silver/*.yaml
+# manifests so behavior matches what `kubectl apply` produces today:
+#   games          1c × 2 executors, 2g each
+#   plays          2c × 1 executor,  2g   (heavier per-executor for the explode)
+#   players        1c × 1 executor,  1g
+#   game_rosters   1c × 2 executors, 1g
+#   teams          1c × 1 executor,  1g
+#
+# parallelism: 2 caps the fan-out so we stay under the lakehouse-quota CPU
+# ceiling (10 CPU total, ~2 CPU already booked by viz + lakekeeper + argo +
+# spark-operator + seaweedfs). Per-SparkApplication CPU cost (driver 2c +
+# executors sized per manifest):
+#
+#   games         4c    plays         4c
+#   players       3c    game_rosters  4c
+#   teams         3c
+#
+# Worst case with parallelism=3 is plays + game_rosters + players = 11 CPU
+# which exceeds the 10-CPU quota, and K8s would start rejecting executor
+# pods mid-job. parallelism=2 caps the worst case at 8c (plays + rosters),
+# leaving headroom for steady state. The four downstream jobs run in two
+# waves of two rather than one wave of four; wall-clock cost is one extra
+# pass through the longest fan-out job. Bump when the quota widens or
+# driver sizes come down.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: silver-full-rebuild
+  namespace: lakehouse
+spec:
+  entrypoint: dag
+  templates:
+    - name: dag
+      parallelism: 2
+      dag:
+        tasks:
+          - name: silver-games
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: games}
+                - {name: file_stem,            value: games}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "2"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-plays
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: plays}
+                - {name: file_stem,            value: plays}
+                - {name: executor_cores,       value: "2"}
+                - {name: executor_core_limit,  value: "2"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-players
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: players}
+                - {name: file_stem,            value: players}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "1g"}
+
+          - name: silver-game-rosters
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: game-rosters}
+                - {name: file_stem,            value: game_rosters}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "2"}
+                - {name: executor_memory,      value: "1g"}
+
+          - name: silver-teams
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: teams}
+                - {name: file_stem,            value: teams}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "1g"}
