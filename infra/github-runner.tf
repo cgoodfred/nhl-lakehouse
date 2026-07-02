@@ -267,3 +267,54 @@ resource "kubernetes_deployment" "github_runner" {
     }
   }
 }
+
+# The runner builds the argo-workflow-runner Role in `lakehouse` (see
+# infra/argo-workflows.tf). Kubernetes' RBAC privilege-escalation guard
+# refuses to let it grant permissions it doesn't itself hold, so we have
+# to hand the runner the same verbs on the same resources first via a
+# local bootstrap apply. After this lands once, CI can apply the Argo
+# resources cleanly.
+#
+# Three resource sets it didn't have before:
+#   - pods/log (write verbs — the runner already has the read verbs via the
+#     built-in admin ClusterRole)
+#   - argoproj.io/workflowtaskresults (Argo's per-step status surface)
+#   - sparkoperator.k8s.io/sparkapplications (the CRD the Workflow steps create)
+resource "kubernetes_role" "github_runner_lakehouse_argo" {
+  metadata {
+    name      = "github-runner-argo"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["pods/log"]
+    verbs      = ["create", "update", "patch", "delete"]
+  }
+  rule {
+    api_groups = ["argoproj.io"]
+    resources  = ["workflowtaskresults"]
+    verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
+  }
+  rule {
+    api_groups = ["sparkoperator.k8s.io"]
+    resources  = ["sparkapplications"]
+    verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
+  }
+}
+
+resource "kubernetes_role_binding" "github_runner_lakehouse_argo" {
+  metadata {
+    name      = "github-runner-argo"
+    namespace = kubernetes_namespace.lakehouse.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.github_runner_lakehouse_argo.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
