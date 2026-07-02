@@ -48,6 +48,9 @@ jobs:
   open-image-bump-pr:
     needs: build
     runs-on: ubuntu-latest
+    concurrency:
+      group: viz-image-bump-pr
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -56,12 +59,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+
       - name: Update viz image tag
         id: update
         env:
           IMAGE: ghcr.io/cgoodfred/nhl-lakehouse/viz:${{ github.sha }}
         run: |
-          perl -0pi -e 's#image\s+=\s+"ghcr\.io/cgoodfred/nhl-lakehouse/viz:[^"]+"#image             = "$ENV{IMAGE}"#' infra/viz.tf
+          perl -0pi -e 's#image\s+=\s+"ghcr\.io/cgoodfred/nhl-lakehouse/viz:[^"]+"#image = "$ENV{IMAGE}"#' infra/viz.tf
+
+          if ! grep -Fq "$IMAGE" infra/viz.tf; then
+            echo "::error::image substitution did not update infra/viz.tf"
+            exit 1
+          fi
+
+          tofu fmt infra/viz.tf
 
           if git diff --quiet -- infra/viz.tf; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -86,7 +100,7 @@ jobs:
           git commit -m "chore(infra): pin viz image to ${SHORT_SHA}"
           git push --force-with-lease origin "$BRANCH"
 
-          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+          if gh pr view "$BRANCH" --json state --jq '.state == "OPEN"' 2>/dev/null | grep -q true; then
             gh pr edit "$BRANCH" \
               --title "chore(infra): pin viz image to ${SHORT_SHA}" \
               --body "Pins the viz Deployment image to the image built from ${GITHUB_SHA}."
