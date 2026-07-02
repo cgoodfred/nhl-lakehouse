@@ -65,16 +65,29 @@ One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test
 
 ## Cleanup
 
-Argo doesn't garbage-collect the SparkApplications its Workflows create. Completed runs accumulate as their named CRDs. Filter by the Workflow-managed label so the query only targets Workflow output — a blanket "delete every COMPLETED SparkApplication in lakehouse" would also catch the imperatively-applied `silver-games`, `silver-plays`, etc.:
+Under normal operation you don't need to clean up — `silver-single-table.yaml` sets `timeToLiveSeconds: 60` on the inlined SparkApplication, so completed AND failed CRDs (with their driver pods) get GC'd automatically 60 seconds after any terminal state.
+
+Manual cleanup is only for the edge cases: aborted workflows that never reached a terminal state, stuck SparkApplications the operator can't move forward, or archaeological cleanup after operator/quota misconfiguration. Filter by the Workflow-managed label so the query only targets Workflow output — a blanket "delete every COMPLETED SparkApplication in lakehouse" would also catch the imperatively-applied `silver-games`, `silver-plays`, etc.:
 
 ```bash
+# Drop every Argo-managed SparkApplication regardless of state
+kubectl delete sparkapplication -n lakehouse \
+  -l app.kubernetes.io/managed-by=argo-workflows
+
+# Or scope tighter to just the terminal ones (rarely needed with TTL=60s)
 kubectl get sparkapplication -n lakehouse \
   -l app.kubernetes.io/managed-by=argo-workflows -o json \
-  | jq -r '.items[] | select(.status.applicationState.state == "COMPLETED") | .metadata.name' \
+  | jq -r '.items[] | select(.status.applicationState.state == "COMPLETED" or .status.applicationState.state == "FAILED") | .metadata.name' \
   | xargs -r kubectl delete sparkapplication -n lakehouse
 ```
 
-V2 may add `ttlSecondsAfterFinished` to the inlined SparkApplication template, or an `onExit:` cleanup step at the Workflow level.
+To drop a specific workflow (both the Workflow object AND any lingering SparkApplications it created):
+
+```bash
+argo delete -n lakehouse <workflow-name>
+kubectl delete sparkapplication -n lakehouse \
+  -l workflows.argoproj.io/workflow=<workflow-name>
+```
 
 ## Out of scope (V1)
 
