@@ -1,0 +1,117 @@
+# WorkflowTemplate for "run one silver/gold Spark job by submitting its
+# SparkApplication CRD, then wait for it to reach COMPLETED."
+#
+# Parameters:
+#   - tier      silver | gold
+#   - job_name  kebab-case name used in the SparkApplication metadata (K8s
+#               resource names must be RFC 1123 — no underscores allowed).
+#               Example: game-rosters
+#   - file_stem snake_case name of the Python job file in /opt/jobs/<tier>/.
+#               For most jobs this is job_name with `-` -> `_`; for the ones
+#               where they already match (games, plays) they're identical.
+#               Example: game_rosters
+#
+# Two params instead of one because K8s resource names use hyphens (RFC 1123)
+# but Python module filenames use underscores. `silver.game_rosters` -> file
+# `game_rosters.py`, SparkApplication `silver-game-rosters-<hash>`.
+#
+# The template inlines a full SparkApplication spec mirroring
+# spark/k8s/silver/silver-games.yaml. It uses metadata.generateName so each
+# Workflow run creates a uniquely-named SparkApplication; the existing
+# imperatively-applied manifests use static names and can collide with a
+# Workflow-managed run.
+#
+# The successCondition + failureCondition pair is what makes Argo wait: the
+# step doesn't return until the SparkApplication's status reaches one of
+# those states. Without successCondition the step would return as soon as
+# the resource was created.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: silver-single-table
+  namespace: lakehouse
+spec:
+  entrypoint: run
+  templates:
+    - name: run
+      inputs:
+        parameters:
+          - name: tier
+          - name: job_name
+          - name: file_stem
+      resource:
+        action: create
+        # SparkApplication's status.applicationState.state moves through:
+        # SUBMITTED -> PENDING_RERUN | RUNNING -> COMPLETED | FAILED | ...
+        # Argo polls the resource until one condition matches.
+        successCondition: status.applicationState.state == COMPLETED
+        failureCondition: status.applicationState.state == FAILED
+        manifest: |
+          apiVersion: sparkoperator.k8s.io/v1beta2
+          kind: SparkApplication
+          metadata:
+            generateName: "{{inputs.parameters.tier}}-{{inputs.parameters.job_name}}-"
+            namespace: lakehouse
+            # Labels drive the cleanup query in workflows/README.md — the
+            # blanket "delete every COMPLETED SparkApplication" pattern would
+            # otherwise catch the existing imperatively-applied CRDs too.
+            labels:
+              app.kubernetes.io/managed-by: argo-workflows
+              workflows.argoproj.io/template: silver-single-table
+              nhl-lakehouse/tier: "{{inputs.parameters.tier}}"
+              nhl-lakehouse/job: "{{inputs.parameters.job_name}}"
+          spec:
+            type: Python
+            pythonVersion: "3"
+            mode: cluster
+            image: ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
+            imagePullPolicy: Always
+            mainApplicationFile: "local:///opt/jobs/{{inputs.parameters.tier}}/{{inputs.parameters.file_stem}}.py"
+            sparkVersion: "3.5.7"
+            restartPolicy:
+              type: Never
+            driver:
+              cores: 2
+              coreLimit: "2"
+              memory: "2g"
+              serviceAccount: silver-spark
+              env:
+                - {name: AWS_ACCESS_KEY_ID,        valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: access_key}}}
+                - {name: AWS_SECRET_ACCESS_KEY,    valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: secret_key}}}
+                - {name: AWS_REGION,               value: "us-east-1"}
+                - {name: LAKEKEEPER_CLIENT_ID,     valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-id}}}
+                - {name: LAKEKEEPER_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-secret}}}
+            executor:
+              cores: 1
+              coreLimit: "1"
+              instances: 2
+              memory: "2g"
+              env:
+                - {name: AWS_ACCESS_KEY_ID,        valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: access_key}}}
+                - {name: AWS_SECRET_ACCESS_KEY,    valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: secret_key}}}
+                - {name: AWS_REGION,               value: "us-east-1"}
+                - {name: LAKEKEEPER_CLIENT_ID,     valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-id}}}
+                - {name: LAKEKEEPER_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-secret}}}
+            sparkConf:
+              "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+              "spark.sql.catalog.nhl": "org.apache.iceberg.spark.SparkCatalog"
+              "spark.sql.catalog.nhl.type": "rest"
+              "spark.sql.catalog.nhl.uri": "http://lakekeeper.lakehouse.svc.cluster.local:8181/catalog"
+              "spark.sql.catalog.nhl.warehouse": "nhl"
+              "spark.sql.catalog.nhl.scope": "lakekeeper"
+              "spark.sql.catalog.nhl.oauth2-server-uri": "https://keycloak.cluster.cgood.dev/realms/Lakehouse/protocol/openid-connect/token"
+              "spark.sql.catalog.nhl.token-refresh-enabled": "true"
+              "spark.sql.catalog.nhl.io-impl": "org.apache.iceberg.aws.s3.S3FileIO"
+              "spark.sql.catalog.nhl.s3.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+              "spark.sql.catalog.nhl.s3.path-style-access": "true"
+              "spark.sql.catalog.nhl.s3.region": "us-east-1"
+              "spark.sql.catalog.nhl.rest.metrics-reporter-impl": "org.apache.iceberg.metrics.LoggingMetricsReporter"
+              "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+              "spark.hadoop.fs.s3a.path.style.access": "true"
+              "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+              "spark.hadoop.fs.s3a.change.detection.version.required": "false"
+              "spark.hadoop.fs.s3a.change.detection.mode": "warn"
+              "spark.sql.shuffle.partitions": "1"
+              "spark.sql.session.timeZone": "UTC"
+              "spark.kubernetes.memoryOverheadFactor": "0.4"
+              "spark.dynamicAllocation.enabled": "false"
