@@ -1,0 +1,114 @@
+# Full silver-tier rebuild as an Argo DAG. All five silver jobs, in
+# dependency order, using the silver-single-table WorkflowTemplate as the
+# per-node body.
+#
+# DAG shape (verified against the actual spark/jobs/silver/*.py source
+# reads, not assumed):
+#
+#   silver-games ──┬─→ silver-plays
+#                  ├─→ silver-players
+#                  ├─→ silver-game-rosters
+#                  └─→ silver-teams
+#
+# All four downstream jobs depend on silver-games only. silver-teams derives
+# from silver.games via a distinct-teams aggregation (verified from
+# spark/jobs/silver/teams.py); it does NOT need plays/players/game_rosters.
+#
+# Per-node executor sizing mirrors the existing spark/k8s/silver/*.yaml
+# manifests so behavior matches what `kubectl apply` produces today:
+#   games          1c × 2 executors
+#   plays          2c × 1 executor  (heavier per-executor for the explode)
+#   players        1c × 1 executor
+#   game_rosters   1c × 2 executors
+#   teams          1c × 1 executor
+#
+# parallelism: 3 caps the fan-out so we don't blow the lakehouse-quota CPU
+# ceiling (10 CPU total; each running job costs driver + executors, and
+# other workloads — viz, lakekeeper, argo itself — share the same quota).
+# With 3, the fan-out runs in two waves: three-of-four in parallel, then the
+# fourth backfills. Bump if you widen the quota.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: silver-full-rebuild
+  namespace: lakehouse
+spec:
+  entrypoint: dag
+  templates:
+    - name: dag
+      parallelism: 3
+      dag:
+        tasks:
+          - name: silver-games
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: games}
+                - {name: file_stem,            value: games}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "2"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-plays
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: plays}
+                - {name: file_stem,            value: plays}
+                - {name: executor_cores,       value: "2"}
+                - {name: executor_core_limit,  value: "2"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-players
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: players}
+                - {name: file_stem,            value: players}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-game-rosters
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: game-rosters}
+                - {name: file_stem,            value: game_rosters}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "2"}
+                - {name: executor_memory,      value: "2g"}
+
+          - name: silver-teams
+            dependencies: [silver-games]
+            templateRef:
+              name: silver-single-table
+              template: run
+            arguments:
+              parameters:
+                - {name: tier,                 value: silver}
+                - {name: job_name,             value: teams}
+                - {name: file_stem,            value: teams}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
+                - {name: executor_instances,   value: "1"}
+                - {name: executor_memory,      value: "2g"}

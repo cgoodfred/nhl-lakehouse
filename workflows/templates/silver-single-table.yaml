@@ -2,18 +2,26 @@
 # SparkApplication CRD, then wait for it to reach COMPLETED."
 #
 # Parameters:
-#   - tier      silver | gold
-#   - job_name  kebab-case name used in the SparkApplication metadata (K8s
-#               resource names must be RFC 1123 — no underscores allowed).
-#               Example: game-rosters
-#   - file_stem snake_case name of the Python job file in /opt/jobs/<tier>/.
-#               For most jobs this is job_name with `-` -> `_`; for the ones
-#               where they already match (games, plays) they're identical.
-#               Example: game_rosters
+#   - tier                  silver | gold
+#   - job_name              kebab-case name used in the SparkApplication metadata
+#                           (K8s resource names must be RFC 1123 — no underscores
+#                           allowed). Example: game-rosters
+#   - file_stem             snake_case name of the Python job file in
+#                           /opt/jobs/<tier>/. For most jobs this is job_name with
+#                           `-` -> `_`; for the ones where they already match
+#                           (games, plays) they're identical. Example: game_rosters
+#   - executor_cores        int as string. Per-executor CPU request.
+#   - executor_core_limit   string. Per-executor CPU limit ("1", "2", ...).
+#   - executor_instances    int as string. Number of executors to run.
+#   - executor_memory       string. Per-executor JVM memory ("2g", ...).
 #
-# Two params instead of one because K8s resource names use hyphens (RFC 1123)
-# but Python module filenames use underscores. `silver.game_rosters` -> file
-# `game_rosters.py`, SparkApplication `silver-game-rosters-<hash>`.
+# Two name params instead of one because K8s resource names use hyphens (RFC
+# 1123) but Python module filenames use underscores. `silver.game_rosters` ->
+# file `game_rosters.py`, SparkApplication `silver-game-rosters-<hash>`.
+#
+# Executor sizing is required (no defaults) so every DAG node reads its own
+# shape explicitly rather than inheriting a hidden default. Driver sizing is
+# fixed at 2c / 2g — all current silver + gold jobs use the same driver shape.
 #
 # The template inlines a full SparkApplication spec mirroring
 # spark/k8s/silver/silver-games.yaml. It uses metadata.generateName so each
@@ -39,6 +47,10 @@ spec:
           - name: tier
           - name: job_name
           - name: file_stem
+          - name: executor_cores
+          - name: executor_core_limit
+          - name: executor_instances
+          - name: executor_memory
       resource:
         action: create
         # SparkApplication's status.applicationState.state moves through:
@@ -58,6 +70,9 @@ spec:
             labels:
               app.kubernetes.io/managed-by: argo-workflows
               workflows.argoproj.io/template: silver-single-table
+              # Parent workflow name for cleanup + debugging correlation between
+              # a SparkApplication CRD and the DAG run that created it.
+              workflows.argoproj.io/workflow: "{{workflow.name}}"
               nhl-lakehouse/tier: "{{inputs.parameters.tier}}"
               nhl-lakehouse/job: "{{inputs.parameters.job_name}}"
           spec:
@@ -82,10 +97,10 @@ spec:
                 - {name: LAKEKEEPER_CLIENT_ID,     valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-id}}}
                 - {name: LAKEKEEPER_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: lakekeeper-client-secret, key: client-secret}}}
             executor:
-              cores: 1
-              coreLimit: "1"
-              instances: 2
-              memory: "2g"
+              cores: {{inputs.parameters.executor_cores}}
+              coreLimit: "{{inputs.parameters.executor_core_limit}}"
+              instances: {{inputs.parameters.executor_instances}}
+              memory: "{{inputs.parameters.executor_memory}}"
               env:
                 - {name: AWS_ACCESS_KEY_ID,        valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: access_key}}}
                 - {name: AWS_SECRET_ACCESS_KEY,    valueFrom: {secretKeyRef: {name: ingest-s3-creds,         key: secret_key}}}

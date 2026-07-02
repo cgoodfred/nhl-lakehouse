@@ -30,3 +30,13 @@ spec:
                   value: games
                 - name: file_stem
                   value: games
+                # Executor shape matches spark/k8s/silver/silver-games.yaml:
+                # two small executors, 2 CPU + 4 GiB in-flight during the write.
+                - name: executor_cores
+                  value: "1"
+                - name: executor_core_limit
+                  value: "1"
+                - name: executor_instances
+                  value: "2"
+                - name: executor_memory
+                  value: "2g"
