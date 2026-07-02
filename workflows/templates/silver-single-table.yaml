@@ -2,8 +2,18 @@
 # SparkApplication CRD, then wait for it to reach COMPLETED."
 #
 # Parameters:
-#   - tier  (silver | gold)
-#   - table (games, teams, players, plays, ...)
+#   - tier      silver | gold
+#   - job_name  kebab-case name used in the SparkApplication metadata (K8s
+#               resource names must be RFC 1123 — no underscores allowed).
+#               Example: game-rosters
+#   - file_stem snake_case name of the Python job file in /opt/jobs/<tier>/.
+#               For most jobs this is job_name with `-` -> `_`; for the ones
+#               where they already match (games, plays) they're identical.
+#               Example: game_rosters
+#
+# Two params instead of one because K8s resource names use hyphens (RFC 1123)
+# but Python module filenames use underscores. `silver.game_rosters` -> file
+# `game_rosters.py`, SparkApplication `silver-game-rosters-<hash>`.
 #
 # The template inlines a full SparkApplication spec mirroring
 # spark/k8s/silver/silver-games.yaml. It uses metadata.generateName so each
@@ -27,7 +37,8 @@ spec:
       inputs:
         parameters:
           - name: tier
-          - name: table
+          - name: job_name
+          - name: file_stem
       resource:
         action: create
         # SparkApplication's status.applicationState.state moves through:
@@ -39,15 +50,23 @@ spec:
           apiVersion: sparkoperator.k8s.io/v1beta2
           kind: SparkApplication
           metadata:
-            generateName: "{{inputs.parameters.tier}}-{{inputs.parameters.table}}-"
+            generateName: "{{inputs.parameters.tier}}-{{inputs.parameters.job_name}}-"
             namespace: lakehouse
+            # Labels drive the cleanup query in workflows/README.md — the
+            # blanket "delete every COMPLETED SparkApplication" pattern would
+            # otherwise catch the existing imperatively-applied CRDs too.
+            labels:
+              app.kubernetes.io/managed-by: argo-workflows
+              workflows.argoproj.io/template: silver-single-table
+              nhl-lakehouse/tier: "{{inputs.parameters.tier}}"
+              nhl-lakehouse/job: "{{inputs.parameters.job_name}}"
           spec:
             type: Python
             pythonVersion: "3"
             mode: cluster
             image: ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
             imagePullPolicy: Always
-            mainApplicationFile: "local:///opt/jobs/{{inputs.parameters.tier}}/{{inputs.parameters.table}}.py"
+            mainApplicationFile: "local:///opt/jobs/{{inputs.parameters.tier}}/{{inputs.parameters.file_stem}}.py"
             sparkVersion: "3.5.7"
             restartPolicy:
               type: Never

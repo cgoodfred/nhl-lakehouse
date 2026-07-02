@@ -35,21 +35,25 @@ kubectl port-forward -n lakehouse svc/argo-workflows-server 2746:2746
 
 ### `templates/silver-single-table.yaml`
 
-Reusable WorkflowTemplate. Takes `{tier, table}` parameters and inlines a full SparkApplication spec that mirrors the existing `spark/k8s/silver/silver-games.yaml`. Uses `metadata.generateName` so each run creates a uniquely-named SparkApplication that can coexist with the imperatively-applied ones during the migration.
+Reusable WorkflowTemplate. Takes `{tier, job_name, file_stem}` parameters and inlines a full SparkApplication spec that mirrors the existing `spark/k8s/silver/silver-games.yaml`. Uses `metadata.generateName` so each run creates a uniquely-named SparkApplication that can coexist with the imperatively-applied ones during the migration.
+
+Two name params instead of one because K8s resource names use RFC 1123 (hyphens, no underscores) but Python module filenames use snake_case. For most jobs the two are trivially related — `game_rosters` (file) ↔ `game-rosters` (K8s name).
 
 The step waits for the SparkApplication via `successCondition: status.applicationState.state == COMPLETED`. Without this, the step would return as soon as the resource was created — completely bypassing the Spark Operator's actual work.
 
+The template also stamps each generated SparkApplication with labels so the cleanup pattern below can safely target Workflow-managed runs without touching the still-imperatively-applied `spark/k8s/silver/*.yaml` CRDs.
+
 ### `workflows/silver-games-example.yaml`
 
-One-shot Workflow that invokes `silver-single-table` with `tier=silver, table=games`. Smoke test for the install — proves the Workflow → SparkApplication CRD → COMPLETED loop works end-to-end. Once verified, the same pattern extends to other silver/gold jobs by changing the two parameters.
+One-shot Workflow that invokes `silver-single-table` with `tier=silver, job_name=games, file_stem=games`. Smoke test for the install — proves the Workflow → SparkApplication CRD → COMPLETED loop works end-to-end. The same pattern extends to other jobs by changing the parameters (e.g. `job_name=game-rosters, file_stem=game_rosters`).
 
 ## Cleanup
 
-Argo doesn't garbage-collect the SparkApplications its Workflows create. Completed runs accumulate as their named CRDs:
+Argo doesn't garbage-collect the SparkApplications its Workflows create. Completed runs accumulate as their named CRDs. Filter by the Workflow-managed label so the query only targets Workflow output — a blanket "delete every COMPLETED SparkApplication in lakehouse" would also catch the imperatively-applied `silver-games`, `silver-plays`, etc.:
 
 ```bash
-# Drop all COMPLETED SparkApplications from prior Workflow runs
-kubectl get sparkapplication -n lakehouse -o json \
+kubectl get sparkapplication -n lakehouse \
+  -l app.kubernetes.io/managed-by=argo-workflows -o json \
   | jq -r '.items[] | select(.status.applicationState.state == "COMPLETED") | .metadata.name' \
   | xargs -r kubectl delete sparkapplication -n lakehouse
 ```

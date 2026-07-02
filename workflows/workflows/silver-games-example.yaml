@@ -26,5 +26,7 @@ spec:
               parameters:
                 - name: tier
                   value: silver
-                - name: table
+                - name: job_name
+                  value: games
+                - name: file_stem
                   value: games
