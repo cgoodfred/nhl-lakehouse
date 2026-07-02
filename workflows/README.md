@@ -59,7 +59,7 @@ One-shot Workflow that invokes `silver-single-table` with the games job. Smoke t
 
 ### `workflows/silver-full-rebuild-example.yaml`
 
-One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test — rebuilds the entire silver tier in one Argo submission. Wall-clock ~15-25 min on the Pi cluster at current data volumes.
+One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test — rebuilds the core PBP silver tables (games/plays/players/game_rosters/teams) in one Argo submission. Wall-clock ~15-25 min on the Pi cluster at current data volumes.
 
 ## Cleanup
 
