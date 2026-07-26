@@ -120,9 +120,15 @@ Push flow:
 
 1. Push to `main` → path-filtered image builds (`build-image.yml`, `build-spark-image.yml`, `build-viz-image.yml`) push to `ghcr.io/cgoodfred/nhl-lakehouse/{ingest,spark,viz}` with `:latest` and `:${sha}` tags. Nothing is restarted or resubmitted; the images just sit in the registry.
 2. **Every** push to `main` (no paths filter) → `deploy.yml` runs `tofu plan` / `tofu apply` on the self-hosted `pi-cluster` runner. Even docs-only pushes trigger it, so shared Terraform state is touched on every merge.
-3. Viz builds additionally open `chore/pin-viz-image` PRs that pin the new SHA into `infra/viz.tf`. Merging the PR is the actual viz rollout (via step 2 re-applying with the new pin).
+3. Every build additionally opens a `chore/pin-<component>-image` PR that rewrites the component's image references to the new SHA — viz → `infra/viz.tf`; ingest → `infra/ingest-backfill.tf`; spark → every `spark/k8s/**/*.yaml` plus `workflows/templates/silver-single-table.yaml`.
 
-Ingest and Spark have no rollout step: `imagePullPolicy: Always` on `:latest` means the *next newly created* Ingest/Spark pod pulls the current `:latest` image. In-flight pods and Deployments are not restarted by a build, so there's no rollback safety net and no immediate deploy.
+Deploy semantics of merging a pin PR differ by component:
+
+- **Viz** — real deploy. Pin PR modifies `infra/viz.tf`, which step 2 applies; K8s Deployment rolls to the new SHA.
+- **Ingest** — intent only. Pin PR modifies `infra/ingest-backfill.tf`; step 2 applies it, but Kubernetes Jobs are immutable, so the new SHA only takes effect the next time the Job is recreated (e.g. a new `var.backfill_season`).
+- **Spark** — intent only. Pin PR modifies YAML manifests and the WorkflowTemplate. Nothing auto-applies them; operator still runs `kubectl apply -f workflows/templates/silver-single-table.yaml` (and, for standalone runs, the relevant `spark/k8s/**` manifest) for the new SHA to reach the cluster.
+
+`spark/k8s/**` is excluded from `build-spark-image.yml`'s path trigger so pin-PR merges don't retrigger the build.
 
 ## Stack rationale
 
