@@ -7,7 +7,7 @@ spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
-  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:latest
+  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:4efb14bad207f0630f162fa12e68f117b632f3c6
   imagePullPolicy: Always
   mainApplicationFile: local:///opt/jobs/bronze/tracking_ingest.py
   sparkVersion: "3.5.7"
