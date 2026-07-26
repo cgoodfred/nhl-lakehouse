@@ -96,7 +96,7 @@ PLAYS_DATA = [
         0,
         1,
         _URL_100,
-    ),  # noqa: E501
+    ),
     (
         101,
         2024020001,
@@ -115,7 +115,7 @@ PLAYS_DATA = [
         0,
         1,
         None,
-    ),  # noqa: E501
+    ),
     (
         102,
         2024020001,
@@ -134,7 +134,7 @@ PLAYS_DATA = [
         1,
         1,
         None,
-    ),  # noqa: E501
+    ),
     (
         200,
         2024020055,
@@ -153,7 +153,7 @@ PLAYS_DATA = [
         2,
         1,
         _URL_200,
-    ),  # noqa: E501
+    ),
     # event 300 is a real goal but in a 4 Nations Face-Off game (game_type=19).
     # Should be filtered out by the NHL-only join.
     (
@@ -174,7 +174,7 @@ PLAYS_DATA = [
         1,
         0,
         None,
-    ),  # noqa: E501
+    ),
 ]
 
 GAMES_DATA = [
