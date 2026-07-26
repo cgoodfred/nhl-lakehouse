@@ -27,77 +27,85 @@ BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
 
 # Union of every `details.X` field we observed across event types in bronze.
 # All nullable — any given event populates a subset.
-_DETAILS_STRUCT = StructType([
-    # Coordinates / team
-    StructField("xCoord", IntegerType()),
-    StructField("yCoord", IntegerType()),
-    StructField("zoneCode", StringType()),
-    StructField("eventOwnerTeamId", IntegerType()),
-    # Player refs (generic + per-event-type)
-    StructField("playerId", IntegerType()),
-    StructField("blockingPlayerId", IntegerType()),
-    StructField("shootingPlayerId", IntegerType()),
-    StructField("losingPlayerId", IntegerType()),
-    StructField("winningPlayerId", IntegerType()),
-    StructField("scoringPlayerId", IntegerType()),
-    StructField("assist1PlayerId", IntegerType()),
-    StructField("assist2PlayerId", IntegerType()),
-    StructField("goalieInNetId", IntegerType()),
-    StructField("hittingPlayerId", IntegerType()),
-    StructField("hitteePlayerId", IntegerType()),
-    StructField("committedByPlayerId", IntegerType()),
-    StructField("drawnByPlayerId", IntegerType()),
-    # Goal stats
-    StructField("scoringPlayerTotal", IntegerType()),
-    StructField("assist1PlayerTotal", IntegerType()),
-    StructField("assist2PlayerTotal", IntegerType()),
-    # Shot info / stoppage reasons
-    StructField("shotType", StringType()),
-    StructField("reason", StringType()),
-    StructField("secondaryReason", StringType()),
-    # Score state
-    StructField("awayScore", IntegerType()),
-    StructField("homeScore", IntegerType()),
-    StructField("awaySOG", IntegerType()),
-    StructField("homeSOG", IntegerType()),
-    # Penalty
-    StructField("typeCode", StringType()),
-    StructField("descKey", StringType()),
-    StructField("duration", IntegerType()),
-    StructField("servedByPlayerId", IntegerType()),
-    # Highlight URLs (goal-only)
-    StructField("highlightClipSharingUrl", StringType()),
-    StructField("highlightClipSharingUrlFr", StringType()),
-    StructField("highlightClip", LongType()),
-    StructField("highlightClipFr", LongType()),
-    StructField("discreteClip", LongType()),
-    StructField("discreteClipFr", LongType()),
-])
+_DETAILS_STRUCT = StructType(
+    [
+        # Coordinates / team
+        StructField("xCoord", IntegerType()),
+        StructField("yCoord", IntegerType()),
+        StructField("zoneCode", StringType()),
+        StructField("eventOwnerTeamId", IntegerType()),
+        # Player refs (generic + per-event-type)
+        StructField("playerId", IntegerType()),
+        StructField("blockingPlayerId", IntegerType()),
+        StructField("shootingPlayerId", IntegerType()),
+        StructField("losingPlayerId", IntegerType()),
+        StructField("winningPlayerId", IntegerType()),
+        StructField("scoringPlayerId", IntegerType()),
+        StructField("assist1PlayerId", IntegerType()),
+        StructField("assist2PlayerId", IntegerType()),
+        StructField("goalieInNetId", IntegerType()),
+        StructField("hittingPlayerId", IntegerType()),
+        StructField("hitteePlayerId", IntegerType()),
+        StructField("committedByPlayerId", IntegerType()),
+        StructField("drawnByPlayerId", IntegerType()),
+        # Goal stats
+        StructField("scoringPlayerTotal", IntegerType()),
+        StructField("assist1PlayerTotal", IntegerType()),
+        StructField("assist2PlayerTotal", IntegerType()),
+        # Shot info / stoppage reasons
+        StructField("shotType", StringType()),
+        StructField("reason", StringType()),
+        StructField("secondaryReason", StringType()),
+        # Score state
+        StructField("awayScore", IntegerType()),
+        StructField("homeScore", IntegerType()),
+        StructField("awaySOG", IntegerType()),
+        StructField("homeSOG", IntegerType()),
+        # Penalty
+        StructField("typeCode", StringType()),
+        StructField("descKey", StringType()),
+        StructField("duration", IntegerType()),
+        StructField("servedByPlayerId", IntegerType()),
+        # Highlight URLs (goal-only)
+        StructField("highlightClipSharingUrl", StringType()),
+        StructField("highlightClipSharingUrlFr", StringType()),
+        StructField("highlightClip", LongType()),
+        StructField("highlightClipFr", LongType()),
+        StructField("discreteClip", LongType()),
+        StructField("discreteClipFr", LongType()),
+    ]
+)
 
-_PERIOD_STRUCT = StructType([
-    StructField("number", IntegerType()),
-    StructField("periodType", StringType()),
-])
+_PERIOD_STRUCT = StructType(
+    [
+        StructField("number", IntegerType()),
+        StructField("periodType", StringType()),
+    ]
+)
 
-_PLAY_STRUCT = StructType([
-    StructField("eventId", LongType()),
-    StructField("sortOrder", IntegerType()),
-    StructField("typeCode", IntegerType()),
-    StructField("typeDescKey", StringType()),
-    StructField("periodDescriptor", _PERIOD_STRUCT),
-    StructField("timeInPeriod", StringType()),
-    StructField("timeRemaining", StringType()),
-    StructField("situationCode", StringType()),
-    StructField("homeTeamDefendingSide", StringType()),
-    StructField("pptReplayUrl", StringType()),
-    StructField("details", _DETAILS_STRUCT),
-])
+_PLAY_STRUCT = StructType(
+    [
+        StructField("eventId", LongType()),
+        StructField("sortOrder", IntegerType()),
+        StructField("typeCode", IntegerType()),
+        StructField("typeDescKey", StringType()),
+        StructField("periodDescriptor", _PERIOD_STRUCT),
+        StructField("timeInPeriod", StringType()),
+        StructField("timeRemaining", StringType()),
+        StructField("situationCode", StringType()),
+        StructField("homeTeamDefendingSide", StringType()),
+        StructField("pptReplayUrl", StringType()),
+        StructField("details", _DETAILS_STRUCT),
+    ]
+)
 
 # `season` is not declared — comes from path partition discovery.
-PLAYS_SCHEMA = StructType([
-    StructField("id", LongType()),  # game_id at the envelope top level
-    StructField("plays", ArrayType(_PLAY_STRUCT)),
-])
+PLAYS_SCHEMA = StructType(
+    [
+        StructField("id", LongType()),  # game_id at the envelope top level
+        StructField("plays", ArrayType(_PLAY_STRUCT)),
+    ]
+)
 
 
 def transform_plays(raw_df: DataFrame) -> DataFrame:
@@ -182,8 +190,7 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
     # strength_state is from the home team's perspective; is_empty_net is true if either
     # goalie has been pulled.
     with_situation = (
-        projected
-        .withColumn("away_goalie_present", substring(col("situation_code"), 1, 1) == "1")
+        projected.withColumn("away_goalie_present", substring(col("situation_code"), 1, 1) == "1")
         .withColumn("away_skaters", substring(col("situation_code"), 2, 1).cast("int"))
         .withColumn("home_skaters", substring(col("situation_code"), 3, 1).cast("int"))
         .withColumn("home_goalie_present", substring(col("situation_code"), 4, 1) == "1")
@@ -205,11 +212,7 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
 def main() -> None:
     spark = get_spark("silver-plays")
 
-    raw = (
-        spark.read.schema(PLAYS_SCHEMA)
-        .option("basePath", BRONZE_BASE)
-        .json(BRONZE_PATH)
-    )
+    raw = spark.read.schema(PLAYS_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
 
     plays = transform_plays(raw)
 

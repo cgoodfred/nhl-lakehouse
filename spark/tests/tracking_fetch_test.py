@@ -28,7 +28,9 @@ from tracking_ingest import TokenBucket, backoff_delay, fetch_tracking
 def _resp(status_code, content=b"", text="", headers=None):
     """Minimal stand-in for a requests.Response."""
     return SimpleNamespace(
-        status_code=status_code, content=content, text=text,
+        status_code=status_code,
+        content=content,
+        text=text,
         headers=headers or {},
     )
 
@@ -37,6 +39,7 @@ def _resp(status_code, content=b"", text="", headers=None):
 def patch_get(monkeypatch):
     """Install a fake requests.get returning the given response or raising
     the given exception. Pass a list to step through multiple responses."""
+
     def _patch(resp_or_exc):
         responses = resp_or_exc if isinstance(resp_or_exc, list) else [resp_or_exc]
         idx = {"i": 0}
@@ -47,7 +50,9 @@ def patch_get(monkeypatch):
             if isinstance(r, Exception):
                 raise r
             return r
+
         monkeypatch.setattr(tracking_ingest.requests, "get", fake_get)
+
     return _patch
 
 
@@ -123,14 +128,19 @@ def test_fetch_error_on_request_exception(patch_get):
 
 def test_429_then_success_returns_success(patch_get):
     body = b'[{"timeStamp": 1, "onIce": {}}]'
-    patch_get([
-        _resp(429, text="rate limited"),
-        _resp(200, content=body),
-    ])
+    patch_get(
+        [
+            _resp(429, text="rate limited"),
+            _resp(200, content=body),
+        ]
+    )
     sleeps: list[float] = []
     result = fetch_tracking(
-        "https://x", {}, max_retries=3,
-        backoff_fn=lambda *_: 0.0, _sleep=sleeps.append,
+        "https://x",
+        {},
+        max_retries=3,
+        backoff_fn=lambda *_: 0.0,
+        _sleep=sleeps.append,
     )
     assert result.status == "success"
     assert result.frame_count == 1
@@ -142,8 +152,11 @@ def test_429_exhausted_returns_http_other(patch_get):
     patch_get(_resp(429, text="still rate limited"))
     sleeps: list[float] = []
     result = fetch_tracking(
-        "https://x", {}, max_retries=3,
-        backoff_fn=lambda *_: 0.0, _sleep=sleeps.append,
+        "https://x",
+        {},
+        max_retries=3,
+        backoff_fn=lambda *_: 0.0,
+        _sleep=sleeps.append,
     )
     assert result.status == "http_other"
     assert result.http_code == 429
@@ -154,13 +167,17 @@ def test_429_exhausted_returns_http_other(patch_get):
 
 
 def test_429_honors_retry_after_seconds(patch_get):
-    patch_get([
-        _resp(429, headers={"Retry-After": "7"}),
-        _resp(200, content=b'[{"timeStamp": 1, "onIce": {}}]'),
-    ])
+    patch_get(
+        [
+            _resp(429, headers={"Retry-After": "7"}),
+            _resp(200, content=b'[{"timeStamp": 1, "onIce": {}}]'),
+        ]
+    )
     sleeps: list[float] = []
     fetch_tracking(
-        "https://x", {}, max_retries=3,
+        "https://x",
+        {},
+        max_retries=3,
         _sleep=sleeps.append,
     )
     # The 429 used the real backoff_delay default; with Retry-After=7 it
@@ -178,12 +195,12 @@ def test_backoff_exponential_without_retry_after():
     assert backoff_delay(4, None) == 16.0
     assert backoff_delay(5, None) == 32.0
     assert backoff_delay(6, None) == 60.0
-    assert backoff_delay(10, None) == 60.0   # capped
+    assert backoff_delay(10, None) == 60.0  # capped
 
 
 def test_backoff_retry_after_seconds_wins_over_exponential():
     assert backoff_delay(0, "12") == 12.0
-    assert backoff_delay(5, "3")  == 3.0
+    assert backoff_delay(5, "3") == 3.0
 
 
 def test_backoff_ignores_unparseable_retry_after():
@@ -209,7 +226,7 @@ class _FakeClock:
 
 
 def test_token_bucket_burst_allows_n_no_wait():
-    clock  = _FakeClock()
+    clock = _FakeClock()
     sleeps: list[float] = []
     tb = TokenBucket(rate_per_sec=2.0, burst=5, _clock=clock)
     # First 5 calls should consume the burst capacity without sleeping.
@@ -219,7 +236,7 @@ def test_token_bucket_burst_allows_n_no_wait():
 
 
 def test_token_bucket_post_burst_sleeps_to_match_rate():
-    clock  = _FakeClock()
+    clock = _FakeClock()
     sleeps: list[float] = []
 
     def fake_sleep(dt):
@@ -235,7 +252,7 @@ def test_token_bucket_post_burst_sleeps_to_match_rate():
 
 
 def test_token_bucket_refills_with_elapsed_time():
-    clock  = _FakeClock()
+    clock = _FakeClock()
     sleeps: list[float] = []
     tb = TokenBucket(rate_per_sec=2.0, burst=5, _clock=clock)
     for _ in range(5):

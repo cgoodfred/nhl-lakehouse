@@ -52,16 +52,12 @@ def transform_goal_tracking_status(
     # Frame counts pre-aggregated to one row per (season, game_id, event_id)
     # so the LEFT JOIN below stays 1:1 with plays and the gold output has
     # exactly one row per goal.
-    frame_counts = (
-        frames_df
-        .groupBy("season", "game_id", "event_id")
-        .agg(count("*").alias("actual_frames"))
+    frame_counts = frames_df.groupBy("season", "game_id", "event_id").agg(
+        count("*").alias("actual_frames")
     )
-    sequence_counts = (
-        sequences_df
-        .select("season", "game_id", "event_id", "frame_count")
-        .withColumnRenamed("frame_count", "sequence_frames")
-    )
+    sequence_counts = sequences_df.select(
+        "season", "game_id", "event_id", "frame_count"
+    ).withColumnRenamed("frame_count", "sequence_frames")
 
     goals = plays_df.where(col("type_desc_key") == "goal")
 
@@ -69,22 +65,22 @@ def transform_goal_tracking_status(
         goals.alias("p")
         .join(
             attempts_df.alias("ta"),
-            (col("p.season")   == col("ta.season"))
-            & (col("p.game_id")  == col("ta.game_id"))
+            (col("p.season") == col("ta.season"))
+            & (col("p.game_id") == col("ta.game_id"))
             & (col("p.event_id") == col("ta.event_id")),
             how="left",
         )
         .join(
             frame_counts.alias("fc"),
-            (col("p.season")   == col("fc.season"))
-            & (col("p.game_id")  == col("fc.game_id"))
+            (col("p.season") == col("fc.season"))
+            & (col("p.game_id") == col("fc.game_id"))
             & (col("p.event_id") == col("fc.event_id")),
             how="left",
         )
         .join(
             sequence_counts.alias("gs"),
-            (col("p.season")   == col("gs.season"))
-            & (col("p.game_id")  == col("gs.game_id"))
+            (col("p.season") == col("gs.season"))
+            & (col("p.game_id") == col("gs.game_id"))
             & (col("p.event_id") == col("gs.event_id")),
             how="left",
         )
@@ -96,21 +92,31 @@ def transform_goal_tracking_status(
             # CASE order matters: no_url first; then success + gold/silver
             # freshness states before generic status checks.
             when(
-                col("p.ppt_replay_url").isNull(), "no_url",
-            ).when(
+                col("p.ppt_replay_url").isNull(),
+                "no_url",
+            )
+            .when(
                 (col("ta.status") == "success") & col("gs.sequence_frames").isNotNull(),
                 "available",
-            ).when(
+            )
+            .when(
                 (col("ta.status") == "success") & (col("fc.actual_frames") > 0),
                 "pending_gold_sequence_rebuild",
-            ).when(
+            )
+            .when(
                 (col("ta.status") == "success") & col("fc.actual_frames").isNull(),
                 "pending_silver_rebuild",
-            ).when(
-                col("ta.status") == "http_404", "not_tracked",
-            ).when(
-                col("ta.status").isNotNull(), "fetch_failed",
-            ).otherwise("not_attempted").alias("tracking_status"),
+            )
+            .when(
+                col("ta.status") == "http_404",
+                "not_tracked",
+            )
+            .when(
+                col("ta.status").isNotNull(),
+                "fetch_failed",
+            )
+            .otherwise("not_attempted")
+            .alias("tracking_status"),
             col("fc.actual_frames").alias("frame_count"),
             col("ta.attempted_at"),
             col("ta.status").alias("fetch_status"),
@@ -124,9 +130,9 @@ def transform_goal_tracking_status(
 def main() -> None:
     spark = get_spark("gold-goal-tracking-status")
 
-    plays    = spark.read.table("nhl.silver.plays")
+    plays = spark.read.table("nhl.silver.plays")
     attempts = spark.read.table("nhl.silver.tracking_attempts")
-    frames   = spark.read.table("nhl.silver.tracking_frames")
+    frames = spark.read.table("nhl.silver.tracking_frames")
     sequences = spark.read.table("nhl.gold.goal_tracking_sequences")
 
     out = transform_goal_tracking_status(plays, attempts, frames, sequences)

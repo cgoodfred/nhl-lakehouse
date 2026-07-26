@@ -81,9 +81,7 @@ def _kube_secret(namespace: str, name: str, key: str) -> str:
 
 def _build_catalog() -> RestCatalog:
     lk_secret = _kube_secret("lakehouse", "lakekeeper-client-secret", "client-secret")
-    s3_config = json.loads(
-        _kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config")
-    )
+    s3_config = json.loads(_kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config"))
     creds = s3_config["identities"][0]["credentials"][0]
     return RestCatalog(
         "nhl",
@@ -152,8 +150,10 @@ def _exec_duckdb_cli() -> None:
 def main() -> None:
     skipped = _refresh_snapshot()
     if skipped:
-        print(f"\n⚠ {len(skipped)} table(s) skipped due to load failure — "
-              "NOT present in the snapshot:")
+        print(
+            f"\n⚠ {len(skipped)} table(s) skipped due to load failure — "
+            "NOT present in the snapshot:"
+        )
         for fq in skipped:
             print(f"    {fq}")
         print(

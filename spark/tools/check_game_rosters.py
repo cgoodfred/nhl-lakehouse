@@ -58,9 +58,7 @@ def _kube_secret(namespace: str, name: str, key: str) -> str:
 
 def _build_catalog() -> RestCatalog:
     lk_secret = _kube_secret("lakehouse", "lakekeeper-client-secret", "client-secret")
-    s3_config = json.loads(
-        _kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config")
-    )
+    s3_config = json.loads(_kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config"))
     creds = s3_config["identities"][0]["credentials"][0]
     return RestCatalog(
         "nhl",
@@ -86,17 +84,22 @@ def main() -> None:
     con.register("game_rosters", arrow_table)
 
     print("=== spot counts per game ===")
-    print(con.execute("""
+    print(
+        con.execute("""
         SELECT
             ROUND(AVG(c), 2) AS avg_spots,
             MIN(c)           AS min_spots,
             MAX(c)           AS max_spots,
             COUNT(*)         AS games
         FROM (SELECT game_id, COUNT(*) c FROM game_rosters GROUP BY game_id)
-    """).df().to_string(index=False))
+    """)
+        .df()
+        .to_string(index=False)
+    )
 
     print("\n=== duplicate (game_id, player_id) pairs (should be 0) ===")
-    print(con.execute("""
+    print(
+        con.execute("""
         SELECT COUNT(*) AS dupes
         FROM (
             SELECT game_id, player_id, COUNT(*) c
@@ -104,7 +107,10 @@ def main() -> None:
             GROUP BY game_id, player_id
             HAVING COUNT(*) > 1
         )
-    """).df().to_string(index=False))
+    """)
+        .df()
+        .to_string(index=False)
+    )
 
 
 if __name__ == "__main__":

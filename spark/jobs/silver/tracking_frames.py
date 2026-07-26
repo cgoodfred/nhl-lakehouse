@@ -60,27 +60,31 @@ BRONZE_GLOB = f"{BRONZE_PATH}/season=*/game_id=*/event_id=*/tracking.json"
 # Rink is 2400x1020 inches → 200x85 feet. Convert to PBP feet (center origin)
 # for analyst-friendly axes that match silver.plays.x_coord / y_coord.
 PPT_INCHES_PER_FT = 12.0
-PPT_CENTER_X_IN   = 1200.0
-PPT_CENTER_Y_IN   = 510.0
+PPT_CENTER_X_IN = 1200.0
+PPT_CENTER_Y_IN = 510.0
 
 # Players keyed by various string ids; the puck is always key "1" with empty
 # string fields for everything except its x/y. We declare playerId as a
 # string here (since the source mixes "" for the puck and ints for players)
 # and cast to long after filtering the puck out.
-ON_ICE_ENTRY = StructType([
-    StructField("id",            LongType()),
-    StructField("playerId",      StringType()),
-    StructField("x",             DoubleType()),
-    StructField("y",             DoubleType()),
-    StructField("sweaterNumber", StringType()),
-    StructField("teamId",        StringType()),
-    StructField("teamAbbrev",    StringType()),
-])
+ON_ICE_ENTRY = StructType(
+    [
+        StructField("id", LongType()),
+        StructField("playerId", StringType()),
+        StructField("x", DoubleType()),
+        StructField("y", DoubleType()),
+        StructField("sweaterNumber", StringType()),
+        StructField("teamId", StringType()),
+        StructField("teamAbbrev", StringType()),
+    ]
+)
 
-BRONZE_FRAME_SCHEMA = StructType([
-    StructField("timeStamp", LongType()),
-    StructField("onIce",     MapType(StringType(), ON_ICE_ENTRY)),
-])
+BRONZE_FRAME_SCHEMA = StructType(
+    [
+        StructField("timeStamp", LongType()),
+        StructField("onIce", MapType(StringType(), ON_ICE_ENTRY)),
+    ]
+)
 
 
 def transform_tracking_frames(raw: DataFrame) -> DataFrame:
@@ -93,12 +97,9 @@ def transform_tracking_frames(raw: DataFrame) -> DataFrame:
     # Window functions can't appear inside a selectExpr that also references
     # nested ops, so add them first.
     ordered_w = Window.partitionBy("game_id", "event_id").orderBy("timeStamp")
-    goal_w    = Window.partitionBy("game_id", "event_id")
-    with_indices = (
-        raw
-        .withColumn("frame_index", row_number().over(ordered_w) - lit(1))
-        .withColumn("rel_seconds",
-                    (col("timeStamp") - spark_max("timeStamp").over(goal_w)) / lit(10.0))
+    goal_w = Window.partitionBy("game_id", "event_id")
+    with_indices = raw.withColumn("frame_index", row_number().over(ordered_w) - lit(1)).withColumn(
+        "rel_seconds", (col("timeStamp") - spark_max("timeStamp").over(goal_w)) / lit(10.0)
     )
 
     # The transform() higher-order function reads cleanly in SQL but is much
@@ -124,12 +125,11 @@ def transform_tracking_frames(raw: DataFrame) -> DataFrame:
     puck_x = col("onIce")["1"]["x"]
     puck_y = col("onIce")["1"]["y"]
     return (
-        with_indices
-        .withColumn("puck_x_in", puck_x)
+        with_indices.withColumn("puck_x_in", puck_x)
         .withColumn("puck_y_in", puck_y)
         .withColumn("puck_x_ft", (puck_x - lit(PPT_CENTER_X_IN)) / lit(PPT_INCHES_PER_FT))
         .withColumn("puck_y_ft", (puck_y - lit(PPT_CENTER_Y_IN)) / lit(PPT_INCHES_PER_FT))
-        .withColumn("on_ice",    expr(on_ice_expr))
+        .withColumn("on_ice", expr(on_ice_expr))
         .select(
             # Partition-discovered game_id/event_id come through as IntegerType
             # (the values fit in int32). Cast to long for schema parity with
@@ -141,8 +141,10 @@ def transform_tracking_frames(raw: DataFrame) -> DataFrame:
             col("frame_index").cast("int").alias("frame_index"),
             col("timeStamp").cast("long").alias("timestamp_ds"),
             col("rel_seconds"),
-            col("puck_x_in"), col("puck_y_in"),
-            col("puck_x_ft"), col("puck_y_ft"),
+            col("puck_x_in"),
+            col("puck_y_in"),
+            col("puck_x_ft"),
+            col("puck_y_ft"),
             col("on_ice"),
             current_timestamp().alias("ingested_at"),
         )
@@ -153,8 +155,7 @@ def main() -> None:
     spark = get_spark("silver-tracking-frames")
 
     raw = (
-        spark.read
-        .option("multiLine", "true")
+        spark.read.option("multiLine", "true")
         .option("basePath", BRONZE_PATH)  # not a .json() kwarg in PySpark
         .schema(BRONZE_FRAME_SCHEMA)
         .json(BRONZE_GLOB)
@@ -162,8 +163,7 @@ def main() -> None:
 
     out = transform_tracking_frames(raw)
 
-    out.writeTo("nhl.silver.tracking_frames") \
-        .partitionedBy("season").createOrReplace()
+    out.writeTo("nhl.silver.tracking_frames").partitionedBy("season").createOrReplace()
 
     written = spark.read.table("nhl.silver.tracking_frames").count()
     print(f"silver-tracking-frames: complete (rows={written})")

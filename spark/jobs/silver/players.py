@@ -39,23 +39,27 @@ BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
 
 _NAME_STRUCT = StructType([StructField("default", StringType())])
 
-_ROSTER_SPOT_STRUCT = StructType([
-    StructField("playerId", IntegerType()),
-    StructField("firstName", _NAME_STRUCT),
-    StructField("lastName", _NAME_STRUCT),
-    StructField("positionCode", StringType()),
-    # NHL CDN headshot URL — embeds the player's CURRENT team and the season,
-    # so it changes when a player is traded. max_by(.., (game_date, game_id))
-    # below picks the most recent value, matching how we resolve first/last
-    # name and position.
-    StructField("headshot", StringType()),
-])
+_ROSTER_SPOT_STRUCT = StructType(
+    [
+        StructField("playerId", IntegerType()),
+        StructField("firstName", _NAME_STRUCT),
+        StructField("lastName", _NAME_STRUCT),
+        StructField("positionCode", StringType()),
+        # NHL CDN headshot URL — embeds the player's CURRENT team and the season,
+        # so it changes when a player is traded. max_by(.., (game_date, game_id))
+        # below picks the most recent value, matching how we resolve first/last
+        # name and position.
+        StructField("headshot", StringType()),
+    ]
+)
 
-PLAYERS_SCHEMA = StructType([
-    StructField("id", LongType()),  # game_id at the envelope top level
-    StructField("gameDate", StringType()),
-    StructField("rosterSpots", ArrayType(_ROSTER_SPOT_STRUCT)),
-])
+PLAYERS_SCHEMA = StructType(
+    [
+        StructField("id", LongType()),  # game_id at the envelope top level
+        StructField("gameDate", StringType()),
+        StructField("rosterSpots", ArrayType(_ROSTER_SPOT_STRUCT)),
+    ]
+)
 
 
 def transform_players(raw_df: DataFrame) -> DataFrame:
@@ -91,11 +95,7 @@ def transform_players(raw_df: DataFrame) -> DataFrame:
 def main() -> None:
     spark = get_spark("silver-players")
 
-    raw = (
-        spark.read.schema(PLAYERS_SCHEMA)
-        .option("basePath", BRONZE_BASE)
-        .json(BRONZE_PATH)
-    )
+    raw = spark.read.schema(PLAYERS_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
 
     players = transform_players(raw)
 

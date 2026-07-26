@@ -43,11 +43,15 @@ def transform_teams(games_df: DataFrame) -> DataFrame:
 
     sort_key = struct(col("game_date"), col("game_id"))
 
-    teams = home.union(away).groupBy("team_id").agg(
-        max_by(col("abbrev"), sort_key).alias("abbrev"),
-        max_by(col("name"), sort_key).alias("name"),
-        min("game_date").alias("first_seen_date"),
-        max("game_date").alias("last_seen_date"),
+    teams = (
+        home.union(away)
+        .groupBy("team_id")
+        .agg(
+            max_by(col("abbrev"), sort_key).alias("abbrev"),
+            max_by(col("name"), sort_key).alias("name"),
+            min("game_date").alias("first_seen_date"),
+            max("game_date").alias("last_seen_date"),
+        )
     )
 
     return teams.withColumn("ingested_at", current_timestamp())

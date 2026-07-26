@@ -26,54 +26,64 @@ BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
 
 _NAME_STRUCT = StructType([StructField("default", StringType())])
 
-_TEAM_STRUCT = StructType([
-    StructField("id", IntegerType()),
-    StructField("abbrev", StringType()),
-    StructField("commonName", _NAME_STRUCT),
-    StructField("score", IntegerType()),
-    StructField("sog", IntegerType()),
-])
+_TEAM_STRUCT = StructType(
+    [
+        StructField("id", IntegerType()),
+        StructField("abbrev", StringType()),
+        StructField("commonName", _NAME_STRUCT),
+        StructField("score", IntegerType()),
+        StructField("sog", IntegerType()),
+    ]
+)
 
 # Only fields we want; missing arrays (plays, rosterSpots) are skipped by the
 # JSON parser. `season` is intentionally not declared — it comes from the
 # Hive-style path partition discovery (s3a://.../season=YYYYYYYY/...).
-GAMES_SCHEMA = StructType([
-    StructField("id", LongType()),
-    StructField("gameType", IntegerType()),
-    StructField("gameDate", StringType()),
-    StructField("startTimeUTC", StringType()),
-    StructField("easternUTCOffset", StringType()),
-    StructField("venueUTCOffset", StringType()),
-    StructField("venue", _NAME_STRUCT),
-    StructField("venueLocation", _NAME_STRUCT),
-    StructField("gameState", StringType()),
-    StructField("gameScheduleState", StringType()),
-    StructField("homeTeam", _TEAM_STRUCT),
-    StructField("awayTeam", _TEAM_STRUCT),
-    StructField("periodDescriptor", StructType([
-        StructField("number", IntegerType()),
-        StructField("periodType", StringType()),
-        StructField("maxRegulationPeriods", IntegerType()),
-    ])),
-    StructField("gameOutcome", StructType([
-        StructField("lastPeriodType", StringType()),
-    ])),
-    StructField("regPeriods", IntegerType()),
-    StructField("maxPeriods", IntegerType()),
-    StructField("limitedScoring", BooleanType()),
-    StructField("shootoutInUse", BooleanType()),
-    StructField("otInUse", BooleanType()),
-])
+GAMES_SCHEMA = StructType(
+    [
+        StructField("id", LongType()),
+        StructField("gameType", IntegerType()),
+        StructField("gameDate", StringType()),
+        StructField("startTimeUTC", StringType()),
+        StructField("easternUTCOffset", StringType()),
+        StructField("venueUTCOffset", StringType()),
+        StructField("venue", _NAME_STRUCT),
+        StructField("venueLocation", _NAME_STRUCT),
+        StructField("gameState", StringType()),
+        StructField("gameScheduleState", StringType()),
+        StructField("homeTeam", _TEAM_STRUCT),
+        StructField("awayTeam", _TEAM_STRUCT),
+        StructField(
+            "periodDescriptor",
+            StructType(
+                [
+                    StructField("number", IntegerType()),
+                    StructField("periodType", StringType()),
+                    StructField("maxRegulationPeriods", IntegerType()),
+                ]
+            ),
+        ),
+        StructField(
+            "gameOutcome",
+            StructType(
+                [
+                    StructField("lastPeriodType", StringType()),
+                ]
+            ),
+        ),
+        StructField("regPeriods", IntegerType()),
+        StructField("maxPeriods", IntegerType()),
+        StructField("limitedScoring", BooleanType()),
+        StructField("shootoutInUse", BooleanType()),
+        StructField("otInUse", BooleanType()),
+    ]
+)
 
 
 def main() -> None:
     spark = get_spark("silver-games")
 
-    raw = (
-        spark.read.schema(GAMES_SCHEMA)
-        .option("basePath", BRONZE_BASE)
-        .json(BRONZE_PATH)
-    )
+    raw = spark.read.schema(GAMES_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
 
     games = raw.select(
         col("id").alias("game_id"),

@@ -1,0 +1,60 @@
+# Pre-commit hooks that mirror what CI already runs (see .github/workflows/ci.yml)
+# so the same lints fire before the commit lands instead of on the PR page.
+#
+# Install: `uv tool install pre-commit && pre-commit install`
+# Run over the whole tree: `pre-commit run --all-files`
+# Skip a hook once: `SKIP=hook-id git commit ...`
+#
+# Nothing here is wired into CI; ci.yml remains authoritative.
+
+repos:
+  # Cheap hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Exclude Argo templates: they embed Go template syntax ({{ }}) that
+        # trips the YAML parser. argo lint (CI) validates them properly.
+        exclude: ^workflows/(templates|workflows)/
+
+  # Python: ruff for spark/ and viz/. Each has its own pyproject.toml but
+  # currently shares config; ruff auto-discovers per file.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^(spark|viz)/
+      - id: ruff-format
+        files: ^(spark|viz)/
+
+  # Go: use local hooks (Go must be on PATH — same as running go test locally).
+  # The dnephin/pre-commit-golang repo is stale; local is more reliable.
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt (ingest)
+        entry: gofmt -l -w
+        language: system
+        files: ^ingest/.*\.go$
+      - id: go-vet
+        name: go vet (ingest)
+        entry: bash -c 'cd ingest && go vet ./...'
+        language: system
+        files: ^ingest/.*\.go$
+        pass_filenames: false
+
+  # OpenTofu: local hook. tofu must be on PATH.
+  - repo: local
+    hooks:
+      - id: tofu-fmt
+        name: tofu fmt (infra)
+        entry: tofu fmt
+        language: system
+        files: ^infra/.*\.tf$

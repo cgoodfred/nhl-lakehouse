@@ -39,11 +39,7 @@ def test_one_row_per_goal_with_frame_count(spark):
 
 
 def test_frames_sorted_by_frame_index(spark):
-    row = (
-        transform_goal_tracking_sequences(_frames_df(spark))
-        .where("event_id = 274")
-        .collect()[0]
-    )
+    row = transform_goal_tracking_sequences(_frames_df(spark)).where("event_id = 274").collect()[0]
 
     assert [frame.frame_index for frame in row.frames] == [0, 1, 2]
     assert [frame.timestamp_ds for frame in row.frames] == [100, 101, 102]
@@ -51,11 +47,7 @@ def test_frames_sorted_by_frame_index(spark):
 
 
 def test_single_frame_goal_is_preserved(spark):
-    row = (
-        transform_goal_tracking_sequences(_frames_df(spark))
-        .where("event_id = 300")
-        .collect()[0]
-    )
+    row = transform_goal_tracking_sequences(_frames_df(spark)).where("event_id = 300").collect()[0]
 
     assert row.frame_count == 1
     assert len(row.frames) == 1
@@ -63,11 +55,7 @@ def test_single_frame_goal_is_preserved(spark):
 
 
 def test_empty_on_ice_array_is_preserved(spark):
-    row = (
-        transform_goal_tracking_sequences(_frames_df(spark))
-        .where("event_id = 400")
-        .collect()[0]
-    )
+    row = transform_goal_tracking_sequences(_frames_df(spark)).where("event_id = 400").collect()[0]
 
     assert row.frame_count == 1
     assert row.frames[0].on_ice == []

@@ -19,44 +19,52 @@ from pyspark.sql.types import (
 
 from player_shots import transform_player_shots
 
-PLAYS_SCHEMA = StructType([
-    StructField("event_id", LongType()),
-    StructField("game_id", LongType()),
-    StructField("season", IntegerType()),
-    StructField("type_desc_key", StringType()),
-    StructField("scoring_player_id", IntegerType()),
-    StructField("event_owner_team_id", IntegerType()),
-    StructField("period_number", IntegerType()),
-    StructField("period_type", StringType()),
-    StructField("time_in_period", StringType()),
-    StructField("x_coord", IntegerType()),
-    StructField("y_coord", IntegerType()),
-    StructField("shot_type", StringType()),
-    StructField("strength_state", StringType()),
-    StructField("is_empty_net", BooleanType()),
-    StructField("home_score", IntegerType()),
-    StructField("away_score", IntegerType()),
-    StructField("ppt_replay_url", StringType()),
-])
+PLAYS_SCHEMA = StructType(
+    [
+        StructField("event_id", LongType()),
+        StructField("game_id", LongType()),
+        StructField("season", IntegerType()),
+        StructField("type_desc_key", StringType()),
+        StructField("scoring_player_id", IntegerType()),
+        StructField("event_owner_team_id", IntegerType()),
+        StructField("period_number", IntegerType()),
+        StructField("period_type", StringType()),
+        StructField("time_in_period", StringType()),
+        StructField("x_coord", IntegerType()),
+        StructField("y_coord", IntegerType()),
+        StructField("shot_type", StringType()),
+        StructField("strength_state", StringType()),
+        StructField("is_empty_net", BooleanType()),
+        StructField("home_score", IntegerType()),
+        StructField("away_score", IntegerType()),
+        StructField("ppt_replay_url", StringType()),
+    ]
+)
 
-GAMES_SCHEMA = StructType([
-    StructField("game_id", LongType()),
-    StructField("game_date", DateType()),
-    StructField("game_type", IntegerType()),
-    StructField("home_team_abbrev", StringType()),
-])
+GAMES_SCHEMA = StructType(
+    [
+        StructField("game_id", LongType()),
+        StructField("game_date", DateType()),
+        StructField("game_type", IntegerType()),
+        StructField("home_team_abbrev", StringType()),
+    ]
+)
 
-PLAYERS_SCHEMA = StructType([
-    StructField("player_id", IntegerType()),
-    StructField("first_name", StringType()),
-    StructField("last_name", StringType()),
-    StructField("headshot", StringType()),
-])
+PLAYERS_SCHEMA = StructType(
+    [
+        StructField("player_id", IntegerType()),
+        StructField("first_name", StringType()),
+        StructField("last_name", StringType()),
+        StructField("headshot", StringType()),
+    ]
+)
 
-TEAMS_SCHEMA = StructType([
-    StructField("team_id", IntegerType()),
-    StructField("abbrev", StringType()),
-])
+TEAMS_SCHEMA = StructType(
+    [
+        StructField("team_id", IntegerType()),
+        StructField("abbrev", StringType()),
+    ]
+)
 
 # Test data:
 #   game 2024020001 on 2024-10-08 — 1 goal (event 100), 1 shot-on-goal (event 101),
@@ -70,26 +78,116 @@ TEAMS_SCHEMA = StructType([
 _URL_100 = "https://wsr.nhle.com/sprites/x/100.json"
 _URL_200 = "https://wsr.nhle.com/sprites/x/200.json"
 PLAYS_DATA = [
-    (100, 2024020001, 20242025, "goal", 8480113, 52, 1, "REG", "01:23", -73, 3, "wrist", "PP", False, 0, 1, _URL_100),  # noqa: E501
-    (101, 2024020001, 20242025, "shot-on-goal", 8477942, 26, 2, "REG", "05:00", 85, 9, "wrist", "EV", False, 0, 1, None),  # noqa: E501
-    (102, 2024020001, 20242025, "goal", 8478403, 26, 3, "REG", "10:00", None, None, "snap", "EV", False, 1, 1, None),  # noqa: E501
-    (200, 2024020055, 20242025, "goal", 8471685, 26, 2, "REG", "08:45", 60, -20, "snap", "EV", True, 2, 1, _URL_200),  # noqa: E501
+    (
+        100,
+        2024020001,
+        20242025,
+        "goal",
+        8480113,
+        52,
+        1,
+        "REG",
+        "01:23",
+        -73,
+        3,
+        "wrist",
+        "PP",
+        False,
+        0,
+        1,
+        _URL_100,
+    ),
+    (
+        101,
+        2024020001,
+        20242025,
+        "shot-on-goal",
+        8477942,
+        26,
+        2,
+        "REG",
+        "05:00",
+        85,
+        9,
+        "wrist",
+        "EV",
+        False,
+        0,
+        1,
+        None,
+    ),
+    (
+        102,
+        2024020001,
+        20242025,
+        "goal",
+        8478403,
+        26,
+        3,
+        "REG",
+        "10:00",
+        None,
+        None,
+        "snap",
+        "EV",
+        False,
+        1,
+        1,
+        None,
+    ),
+    (
+        200,
+        2024020055,
+        20242025,
+        "goal",
+        8471685,
+        26,
+        2,
+        "REG",
+        "08:45",
+        60,
+        -20,
+        "snap",
+        "EV",
+        True,
+        2,
+        1,
+        _URL_200,
+    ),
     # event 300 is a real goal but in a 4 Nations Face-Off game (game_type=19).
     # Should be filtered out by the NHL-only join.
-    (300, 2024190001, 20242025, "goal", 8480113, 52, 1, "REG", "12:00", 70, 4, "wrist", "EV", False, 1, 0, None),  # noqa: E501
+    (
+        300,
+        2024190001,
+        20242025,
+        "goal",
+        8480113,
+        52,
+        1,
+        "REG",
+        "12:00",
+        70,
+        4,
+        "wrist",
+        "EV",
+        False,
+        1,
+        0,
+        None,
+    ),
 ]
 
 GAMES_DATA = [
-    (2024020001, datetime.date(2024, 10, 8), 2, "WPG"),    # regular season, WPG home
-    (2024020055, datetime.date(2024, 10, 25), 2, "LAK"),   # regular season, LAK home
-    (2024190001, datetime.date(2025, 2, 12), 19, "SWE"),   # 4 Nations — filtered
+    (2024020001, datetime.date(2024, 10, 8), 2, "WPG"),  # regular season, WPG home
+    (2024020055, datetime.date(2024, 10, 25), 2, "LAK"),  # regular season, LAK home
+    (2024190001, datetime.date(2025, 2, 12), 19, "SWE"),  # 4 Nations — filtered
 ]
 
 PLAYERS_DATA = [
-    (8480113, "Alex",    "Iafallo",   "https://assets.nhle.com/mugs/nhl/20242025/WPG/8480113.png"),
-    (8471685, "Anze",    "Kopitar",   "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685.png"),
-    (8477942, "Mark",    "Scheifele", "https://assets.nhle.com/mugs/nhl/20242025/WPG/8477942.png"),
-    (8478403, "Quinton", "Byfield",   "https://assets.nhle.com/mugs/nhl/20242025/LAK/8478403.png"),
+    (8480113, "Alex", "Iafallo", "https://assets.nhle.com/mugs/nhl/20242025/WPG/8480113.png"),
+    (8471685, "Anze", "Kopitar", "https://assets.nhle.com/mugs/nhl/20242025/LAK/8471685.png"),
+    (8477942, "Mark", "Scheifele", "https://assets.nhle.com/mugs/nhl/20242025/WPG/8477942.png"),
+    (8478403, "Quinton", "Byfield", "https://assets.nhle.com/mugs/nhl/20242025/LAK/8478403.png"),
 ]
 
 TEAMS_DATA = [

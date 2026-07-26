@@ -237,9 +237,11 @@ def _tracking_attempts() -> SectionData:
             return _section(pd.DataFrame(columns=["status", "attempts"]))
         df = arrow.select(["status"]).to_pandas()
         counts = (
-            df["status"].fillna("unknown").value_counts().rename_axis("status").reset_index(
-                name="attempts"
-            )
+            df["status"]
+            .fillna("unknown")
+            .value_counts()
+            .rename_axis("status")
+            .reset_index(name="attempts")
         )
         return _section(counts)
     except Exception as exc:
@@ -324,9 +326,7 @@ def _render_cards(health: pd.DataFrame, seasons: SectionData, coverage: SectionD
     if coverage["error"] is None and coverage_data is not None and not coverage_data.empty:
         total = int(coverage_data["goals"].sum())
         available = int(
-            coverage_data.loc[
-                coverage_data["tracking_status"] == "available", "goals"
-            ].sum()
+            coverage_data.loc[coverage_data["tracking_status"] == "available", "goals"].sum()
         )
         available_pct = f"{available / total:.1%}" if total else "0.0%"
 
