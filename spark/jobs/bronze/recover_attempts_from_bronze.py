@@ -99,11 +99,9 @@ def main():
     spark = get_spark("bronze-recover-tracking-attempts")
 
     season_raw = spark.conf.get("spark.tracking.season", "").strip()
-    season     = int(season_raw) if season_raw else None
+    season = int(season_raw) if season_raw else None
 
-    list_prefix = (
-        f"{BRONZE_PREFIX}/season={season}/" if season else f"{BRONZE_PREFIX}/"
-    )
+    list_prefix = f"{BRONZE_PREFIX}/season={season}/" if season else f"{BRONZE_PREFIX}/"
 
     s3 = _s3_client()
     print(f"bronze-recover-tracking-attempts: listing s3://{BRONZE_BUCKET}/{list_prefix}")
@@ -146,21 +144,21 @@ def main():
             # than dropping the row — record a placeholder URL so the row
             # still satisfies the non-null source_url schema invariant.
             fallback_count += 1
-            source_url = (
-                f"recovered:s3://{BRONZE_BUCKET}/{r.source_object_key}"
-            )
-        new_attempts.append({
-            "game_id":           r.game_id,
-            "event_id":          r.event_id,
-            "season":            r.season,
-            "source_url":        source_url,
-            "source_object_key": r.source_object_key,
-            "attempted_at":      now,
-            "status":            "success",
-            "http_code":         200,
-            "frame_count":       None,
-            "error_message":     None,
-        })
+            source_url = f"recovered:s3://{BRONZE_BUCKET}/{r.source_object_key}"
+        new_attempts.append(
+            {
+                "game_id": r.game_id,
+                "event_id": r.event_id,
+                "season": r.season,
+                "source_url": source_url,
+                "source_object_key": r.source_object_key,
+                "attempted_at": now,
+                "status": "success",
+                "http_code": 200,
+                "frame_count": None,
+                "error_message": None,
+            }
+        )
     if fallback_count:
         print(f"  WARN: {fallback_count} bronze files had no matching silver.plays row")
 
@@ -171,8 +169,9 @@ def main():
         existing = spark.read.table("nhl.silver.tracking_attempts")
 
     combined = merge_attempts(existing, new_df)
-    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
-        .partitionedBy("season").createOrReplace()
+    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts").partitionedBy(
+        "season"
+    ).createOrReplace()
 
     total = spark.read.table("nhl.silver.tracking_attempts").count()
     print(f"bronze-recover-tracking-attempts: complete (attempts table rows={total})")

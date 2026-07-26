@@ -59,9 +59,7 @@ def _kube_secret(namespace: str, name: str, key: str) -> str:
 
 def _build_catalog() -> RestCatalog:
     lk_secret = _kube_secret("lakehouse", "lakekeeper-client-secret", "client-secret")
-    s3_config = json.loads(
-        _kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config")
-    )
+    s3_config = json.loads(_kube_secret("lakehouse", "seaweedfs-s3-config", "seaweedfs_s3_config"))
     creds = s3_config["identities"][0]["credentials"][0]
     return RestCatalog(
         "nhl",
@@ -103,7 +101,9 @@ def main() -> None:
     _load_tables(con, catalog)
 
     _section("silver.games")
-    _print_df("counts", """
+    _print_df(
+        "counts",
+        """
         SELECT COUNT(*) AS rows,
                COUNT(DISTINCT game_id) AS distinct_game_ids,
                COUNT(DISTINCT season) AS distinct_seasons,
@@ -111,14 +111,22 @@ def main() -> None:
                SUM(CASE WHEN season    IS NULL THEN 1 ELSE 0 END) AS null_season,
                SUM(CASE WHEN game_date IS NULL THEN 1 ELSE 0 END) AS null_game_date
         FROM games
-    """, con)
-    _print_df("by season", """
+    """,
+        con,
+    )
+    _print_df(
+        "by season",
+        """
         SELECT season, COUNT(*) AS games, MIN(game_date) AS first, MAX(game_date) AS last
         FROM games GROUP BY season ORDER BY season
-    """, con)
+    """,
+        con,
+    )
 
     _section("silver.plays")
-    _print_df("counts", """
+    _print_df(
+        "counts",
+        """
         SELECT COUNT(*) AS rows,
                COUNT(DISTINCT game_id) AS distinct_game_ids,
                COUNT(DISTINCT season) AS distinct_seasons,
@@ -126,36 +134,60 @@ def main() -> None:
                SUM(CASE WHEN game_id  IS NULL THEN 1 ELSE 0 END) AS null_game_id,
                SUM(CASE WHEN season   IS NULL THEN 1 ELSE 0 END) AS null_season
         FROM plays
-    """, con)
-    _print_df("plays per game (min/avg/max)", """
+    """,
+        con,
+    )
+    _print_df(
+        "plays per game (min/avg/max)",
+        """
         SELECT MIN(c) AS min_plays, ROUND(AVG(c), 1) AS avg_plays, MAX(c) AS max_plays
         FROM (SELECT game_id, COUNT(*) c FROM plays GROUP BY game_id)
-    """, con)
-    _print_df("strength_state distribution", """
+    """,
+        con,
+    )
+    _print_df(
+        "strength_state distribution",
+        """
         SELECT strength_state, COUNT(*) AS plays
         FROM plays GROUP BY strength_state ORDER BY plays DESC
-    """, con)
+    """,
+        con,
+    )
 
     _section("silver.players")
-    _print_df("counts", """
+    _print_df(
+        "counts",
+        """
         SELECT COUNT(*) AS rows,
                COUNT(DISTINCT player_id) AS distinct_player_ids,
                SUM(CASE WHEN player_id  IS NULL THEN 1 ELSE 0 END) AS null_player_id,
                SUM(CASE WHEN first_name IS NULL THEN 1 ELSE 0 END) AS null_first_name,
                SUM(CASE WHEN last_name  IS NULL THEN 1 ELSE 0 END) AS null_last_name
         FROM players
-    """, con)
-    _print_df("position_code distribution", """
+    """,
+        con,
+    )
+    _print_df(
+        "position_code distribution",
+        """
         SELECT position_code, COUNT(*) AS players
         FROM players GROUP BY position_code ORDER BY players DESC
-    """, con)
-    _print_df("date span sanity (first_seen > last_seen should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "date span sanity (first_seen > last_seen should be 0)",
+        """
         SELECT COUNT(*) AS players_with_inverted_dates
         FROM players WHERE first_seen_date > last_seen_date
-    """, con)
+    """,
+        con,
+    )
 
     _section("silver.game_rosters")
-    _print_df("counts", """
+    _print_df(
+        "counts",
+        """
         SELECT COUNT(*) AS rows,
                COUNT(DISTINCT game_id) AS distinct_game_ids,
                COUNT(DISTINCT player_id) AS distinct_player_ids,
@@ -163,58 +195,94 @@ def main() -> None:
                SUM(CASE WHEN player_id IS NULL THEN 1 ELSE 0 END) AS null_player_id,
                SUM(CASE WHEN season    IS NULL THEN 1 ELSE 0 END) AS null_season
         FROM game_rosters
-    """, con)
-    _print_df("spots per game (min/avg/max)", """
+    """,
+        con,
+    )
+    _print_df(
+        "spots per game (min/avg/max)",
+        """
         SELECT MIN(c) AS min_spots, ROUND(AVG(c), 1) AS avg_spots, MAX(c) AS max_spots
         FROM (SELECT game_id, COUNT(*) c FROM game_rosters GROUP BY game_id)
-    """, con)
-    _print_df("composite key uniqueness (dupes should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "composite key uniqueness (dupes should be 0)",
+        """
         SELECT COUNT(*) AS dupes FROM (
             SELECT game_id, player_id, COUNT(*) c
             FROM game_rosters GROUP BY game_id, player_id HAVING COUNT(*) > 1
         )
-    """, con)
+    """,
+        con,
+    )
 
     _section("silver.teams")
-    _print_df("counts", """
+    _print_df(
+        "counts",
+        """
         SELECT COUNT(*) AS rows,
                COUNT(DISTINCT team_id) AS distinct_team_ids,
                SUM(CASE WHEN team_id IS NULL THEN 1 ELSE 0 END) AS null_team_id,
                SUM(CASE WHEN abbrev  IS NULL THEN 1 ELSE 0 END) AS null_abbrev,
                SUM(CASE WHEN name    IS NULL THEN 1 ELSE 0 END) AS null_name
         FROM teams
-    """, con)
-    _print_df("date span sanity (first_seen > last_seen should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "date span sanity (first_seen > last_seen should be 0)",
+        """
         SELECT COUNT(*) AS teams_with_inverted_dates
         FROM teams WHERE first_seen_date > last_seen_date
-    """, con)
+    """,
+        con,
+    )
 
     _section("cross-table referential integrity")
-    _print_df("plays.game_id values missing from games (should be 0)", """
+    _print_df(
+        "plays.game_id values missing from games (should be 0)",
+        """
         SELECT COUNT(DISTINCT p.game_id) AS orphan_game_ids
         FROM plays p
         LEFT JOIN games g ON p.game_id = g.game_id
         WHERE g.game_id IS NULL
-    """, con)
-    _print_df("game_rosters.game_id values missing from games (should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "game_rosters.game_id values missing from games (should be 0)",
+        """
         SELECT COUNT(DISTINCT gr.game_id) AS orphan_game_ids
         FROM game_rosters gr
         LEFT JOIN games g ON gr.game_id = g.game_id
         WHERE g.game_id IS NULL
-    """, con)
-    _print_df("game_rosters.player_id values missing from players (should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "game_rosters.player_id values missing from players (should be 0)",
+        """
         SELECT COUNT(DISTINCT gr.player_id) AS orphan_player_ids
         FROM game_rosters gr
         LEFT JOIN players p ON gr.player_id = p.player_id
         WHERE p.player_id IS NULL
-    """, con)
-    _print_df("game_rosters.team_id values missing from teams (should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "game_rosters.team_id values missing from teams (should be 0)",
+        """
         SELECT COUNT(DISTINCT gr.team_id) AS orphan_team_ids
         FROM game_rosters gr
         LEFT JOIN teams t ON gr.team_id = t.team_id
         WHERE t.team_id IS NULL
-    """, con)
-    _print_df("games team_id values missing from teams (should be 0)", """
+    """,
+        con,
+    )
+    _print_df(
+        "games team_id values missing from teams (should be 0)",
+        """
         SELECT COUNT(DISTINCT g.team_id) AS orphan_team_ids
         FROM (
             SELECT home_team_id AS team_id FROM games
@@ -223,13 +291,19 @@ def main() -> None:
         ) g
         LEFT JOIN teams t ON g.team_id = t.team_id
         WHERE t.team_id IS NULL
-    """, con)
-    _print_df("games covered by plays (every game should have plays)", """
+    """,
+        con,
+    )
+    _print_df(
+        "games covered by plays (every game should have plays)",
+        """
         SELECT COUNT(*) AS games_with_no_plays
         FROM games g
         LEFT JOIN (SELECT DISTINCT game_id FROM plays) p ON g.game_id = p.game_id
         WHERE p.game_id IS NULL
-    """, con)
+    """,
+        con,
+    )
 
 
 if __name__ == "__main__":

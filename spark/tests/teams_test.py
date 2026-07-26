@@ -20,16 +20,18 @@ from pyspark.sql.types import (
 
 from teams import transform_teams
 
-GAMES_SCHEMA = StructType([
-    StructField("game_id", LongType()),
-    StructField("game_date", DateType()),
-    StructField("home_team_id", IntegerType()),
-    StructField("home_team_abbrev", StringType()),
-    StructField("home_team_name", StringType()),
-    StructField("away_team_id", IntegerType()),
-    StructField("away_team_abbrev", StringType()),
-    StructField("away_team_name", StringType()),
-])
+GAMES_SCHEMA = StructType(
+    [
+        StructField("game_id", LongType()),
+        StructField("game_date", DateType()),
+        StructField("home_team_id", IntegerType()),
+        StructField("home_team_abbrev", StringType()),
+        StructField("home_team_name", StringType()),
+        StructField("away_team_id", IntegerType()),
+        StructField("away_team_abbrev", StringType()),
+        StructField("away_team_name", StringType()),
+    ]
+)
 
 # Test scenario:
 #   - LAK (26) and WPG (52) appear in normal games on different dates.
@@ -39,10 +41,10 @@ GAMES_SCHEMA = StructType([
 #     in different games → struct tie-break must pick "VER2" because of
 #     higher game_id (2024020099 > 2024020055).
 FIXTURE_GAMES = [
-    (2024020001, datetime.date(2024, 10, 8),  26, "LAK",  "Kings",   52, "WPG",  "Jets"),
-    (2024020003, datetime.date(2024, 10, 9),  99, "OLD",  "OldTeam", 26, "LAK",  "Kings"),
-    (2024020055, datetime.date(2024, 10, 25), 88, "VER1", "V1Team",  26, "LAK",  "Kings"),
-    (2024020099, datetime.date(2024, 10, 25), 99, "NEW",  "NewTeam", 88, "VER2", "V2Team"),
+    (2024020001, datetime.date(2024, 10, 8), 26, "LAK", "Kings", 52, "WPG", "Jets"),
+    (2024020003, datetime.date(2024, 10, 9), 99, "OLD", "OldTeam", 26, "LAK", "Kings"),
+    (2024020055, datetime.date(2024, 10, 25), 88, "VER1", "V1Team", 26, "LAK", "Kings"),
+    (2024020099, datetime.date(2024, 10, 25), 99, "NEW", "NewTeam", 88, "VER2", "V2Team"),
 ]
 
 

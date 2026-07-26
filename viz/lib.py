@@ -74,12 +74,7 @@ def load_table_arrow(
             }
             if row_filter is not None:
                 scan_kwargs["row_filter"] = row_filter
-            return (
-                catalog()
-                .load_table(table_name)
-                .scan(**scan_kwargs)
-                .to_arrow()
-            )
+            return catalog().load_table(table_name).scan(**scan_kwargs).to_arrow()
         except Exception as exc:
             last_exc = exc
             if attempt < attempts - 1:

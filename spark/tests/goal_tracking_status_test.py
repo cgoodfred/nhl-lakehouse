@@ -23,41 +23,49 @@ from goal_tracking_status import transform_goal_tracking_status
 # to unrelated additions in silver.plays / silver.tracking_attempts /
 # silver.tracking_frames / gold.goal_tracking_sequences.
 
-_PLAYS_SCHEMA = StructType([
-    StructField("type_desc_key",  StringType()),
-    StructField("season",         IntegerType()),
-    StructField("game_id",        LongType()),
-    StructField("event_id",       LongType()),
-    StructField("ppt_replay_url", StringType()),
-])
+_PLAYS_SCHEMA = StructType(
+    [
+        StructField("type_desc_key", StringType()),
+        StructField("season", IntegerType()),
+        StructField("game_id", LongType()),
+        StructField("event_id", LongType()),
+        StructField("ppt_replay_url", StringType()),
+    ]
+)
 
-_ATTEMPTS_SCHEMA = StructType([
-    StructField("season",        IntegerType()),
-    StructField("game_id",       LongType()),
-    StructField("event_id",      LongType()),
-    StructField("status",        StringType()),
-    StructField("http_code",     IntegerType()),
-    StructField("attempted_at",  TimestampType()),
-    StructField("error_message", StringType()),
-])
+_ATTEMPTS_SCHEMA = StructType(
+    [
+        StructField("season", IntegerType()),
+        StructField("game_id", LongType()),
+        StructField("event_id", LongType()),
+        StructField("status", StringType()),
+        StructField("http_code", IntegerType()),
+        StructField("attempted_at", TimestampType()),
+        StructField("error_message", StringType()),
+    ]
+)
 
-_FRAMES_SCHEMA = StructType([
-    StructField("season",   IntegerType()),
-    StructField("game_id",  LongType()),
-    StructField("event_id", LongType()),
-])
+_FRAMES_SCHEMA = StructType(
+    [
+        StructField("season", IntegerType()),
+        StructField("game_id", LongType()),
+        StructField("event_id", LongType()),
+    ]
+)
 
-_SEQUENCES_SCHEMA = StructType([
-    StructField("season",      IntegerType()),
-    StructField("game_id",     LongType()),
-    StructField("event_id",    LongType()),
-    StructField("frame_count", IntegerType()),
-])
+_SEQUENCES_SCHEMA = StructType(
+    [
+        StructField("season", IntegerType()),
+        StructField("game_id", LongType()),
+        StructField("event_id", LongType()),
+        StructField("frame_count", IntegerType()),
+    ]
+)
 
 _NOW = dt.datetime(2026, 6, 28, tzinfo=dt.timezone.utc)
 _SEASON = 20252026
-_GAME   = 2025020001
-_URL    = "https://wsr.nhle.com/sprites/x/100.json"
+_GAME = 2025020001
+_URL = "https://wsr.nhle.com/sprites/x/100.json"
 
 
 def _plays(spark, rows):
@@ -122,8 +130,8 @@ def test_available_when_success_frames_and_gold_sequence_present(spark):
     )
     rows = _by_event(transform_goal_tracking_status(plays, attempts, frames, sequences))
     assert rows[100].tracking_status == "available"
-    assert rows[100].frame_count    == 140
-    assert rows[100].fetch_status   == "success"
+    assert rows[100].frame_count == 140
+    assert rows[100].fetch_status == "success"
 
 
 def test_pending_gold_sequence_rebuild_when_silver_frames_exist_but_gold_missing(spark):
@@ -154,7 +162,7 @@ def test_pending_silver_rebuild_when_success_but_no_frames(spark):
     rows = _by_event(transform_goal_tracking_status(plays, attempts, frames, sequences))
     assert rows[100].tracking_status == "pending_silver_rebuild"
     assert rows[100].frame_count is None
-    assert rows[100].fetch_status   == "success"
+    assert rows[100].fetch_status == "success"
 
 
 def test_not_tracked_when_http_404(spark):
@@ -166,7 +174,7 @@ def test_not_tracked_when_http_404(spark):
     )
     rows = _by_event(transform_goal_tracking_status(plays, attempts, frames, sequences))
     assert rows[100].tracking_status == "not_tracked"
-    assert rows[100].http_code      == 404
+    assert rows[100].http_code == 404
 
 
 def test_fetch_failed_for_other_non_success_statuses(spark):
@@ -179,9 +187,9 @@ def test_fetch_failed_for_other_non_success_statuses(spark):
             ("goal", _SEASON, _GAME, 300, _URL),
         ],
         attempts_rows=[
-            (_SEASON, _GAME, 100, "http_other",      500,  _NOW, "Internal Server Error"),
-            (_SEASON, _GAME, 200, "fetch_error",     None, _NOW, "ConnectionError"),
-            (_SEASON, _GAME, 300, "invalid_payload", 200,  _NOW, "not a list"),
+            (_SEASON, _GAME, 100, "http_other", 500, _NOW, "Internal Server Error"),
+            (_SEASON, _GAME, 200, "fetch_error", None, _NOW, "ConnectionError"),
+            (_SEASON, _GAME, 300, "invalid_payload", 200, _NOW, "not a list"),
         ],
         frames_rows=[],
     )
@@ -216,7 +224,7 @@ def test_non_goal_events_excluded(spark):
     plays, attempts, frames, sequences = _build_inputs(
         spark,
         plays_rows=[
-            ("goal",         _SEASON, _GAME, 100, _URL),
+            ("goal", _SEASON, _GAME, 100, _URL),
             ("shot-on-goal", _SEASON, _GAME, 200, _URL),
         ],
         attempts_rows=[
@@ -257,29 +265,31 @@ def test_all_status_branches_in_one_run(spark):
     # Single transform run with one goal per CASE branch. Catches any
     # ordering regression in the when() chain.
     plays = [
-        ("goal", _SEASON, _GAME, 100, None),          # no_url
-        ("goal", _SEASON, _GAME, 200, _URL),          # available
-        ("goal", _SEASON, _GAME, 300, _URL),          # pending_gold_sequence_rebuild
-        ("goal", _SEASON, _GAME, 400, _URL),          # pending_silver_rebuild
-        ("goal", _SEASON, _GAME, 500, _URL),          # not_tracked
-        ("goal", _SEASON, _GAME, 600, _URL),          # fetch_failed
-        ("goal", _SEASON, _GAME, 700, _URL),          # not_attempted
+        ("goal", _SEASON, _GAME, 100, None),  # no_url
+        ("goal", _SEASON, _GAME, 200, _URL),  # available
+        ("goal", _SEASON, _GAME, 300, _URL),  # pending_gold_sequence_rebuild
+        ("goal", _SEASON, _GAME, 400, _URL),  # pending_silver_rebuild
+        ("goal", _SEASON, _GAME, 500, _URL),  # not_tracked
+        ("goal", _SEASON, _GAME, 600, _URL),  # fetch_failed
+        ("goal", _SEASON, _GAME, 700, _URL),  # not_attempted
     ]
     attempts = [
-        (_SEASON, _GAME, 200, "success",  200, _NOW, None),
-        (_SEASON, _GAME, 300, "success",  200, _NOW, None),
-        (_SEASON, _GAME, 400, "success",  200, _NOW, None),
+        (_SEASON, _GAME, 200, "success", 200, _NOW, None),
+        (_SEASON, _GAME, 300, "success", 200, _NOW, None),
+        (_SEASON, _GAME, 400, "success", 200, _NOW, None),
         (_SEASON, _GAME, 500, "http_404", 404, _NOW, None),
         (_SEASON, _GAME, 600, "fetch_error", None, _NOW, "timeout"),
     ]
     frames = _frames_for(200, 140) + _frames_for(300, 120)
     sequences = _sequence_for(200, 140)
-    out = _by_event(transform_goal_tracking_status(
-        _plays(spark, plays),
-        _attempts(spark, attempts),
-        _frames(spark, frames),
-        _sequences(spark, sequences),
-    ))
+    out = _by_event(
+        transform_goal_tracking_status(
+            _plays(spark, plays),
+            _attempts(spark, attempts),
+            _frames(spark, frames),
+            _sequences(spark, sequences),
+        )
+    )
     assert {evid: row.tracking_status for evid, row in out.items()} == {
         100: "no_url",
         200: "available",

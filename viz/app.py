@@ -109,11 +109,11 @@ _DARK_PRIMARY_THRESHOLD = 0.18
 # regulation periods get bold distinct hues, OT/SO get more saturated outliers.
 # All chosen for visibility against the dark rink background.
 PERIOD_COLORS = {
-    "P1": "#ff6b6b",   # coral red
-    "P2": "#4ecdc4",   # teal
-    "P3": "#ffe66d",   # bright yellow
-    "OT": "#c084fc",   # purple
-    "SO": "#f97316",   # orange
+    "P1": "#ff6b6b",  # coral red
+    "P2": "#4ecdc4",  # teal
+    "P3": "#ffe66d",  # bright yellow
+    "OT": "#c084fc",  # purple
+    "SO": "#f97316",  # orange
 }
 
 # Ordering for legend + pies — keep periods in temporal sequence rather than
@@ -171,6 +171,7 @@ def _tracking_team_color(team: str, home_team: str | None) -> str:
         return fill
     return "#FFFFFF"
 
+
 # NHL player+puck tracking from wsr.nhle.com uses inches with origin at one
 # corner of the rink. Rink is 200ft x 85ft = 2400in x 1020in, so the center
 # (which matches the PBP coord origin) sits at (1200, 510) inches.
@@ -194,14 +195,16 @@ PPT_HEADERS = {
 def _empty_tracking_status_arrow():
     import pyarrow as pa
 
-    return pa.table({
-        "season":        pa.array([], type=pa.int32()),
-        "game_id":       pa.array([], type=pa.int64()),
-        "event_id":      pa.array([], type=pa.int64()),
-        "tracking_status": pa.array([], type=pa.string()),
-        "frame_count":   pa.array([], type=pa.int32()),
-        "error_message": pa.array([], type=pa.string()),
-    })
+    return pa.table(
+        {
+            "season": pa.array([], type=pa.int32()),
+            "game_id": pa.array([], type=pa.int64()),
+            "event_id": pa.array([], type=pa.int64()),
+            "tracking_status": pa.array([], type=pa.string()),
+            "frame_count": pa.array([], type=pa.int32()),
+            "error_message": pa.array([], type=pa.string()),
+        }
+    )
 
 
 @st.cache_data(ttl=300, show_spinner="Loading lakehouse data...")
@@ -292,7 +295,11 @@ def _player_meta() -> dict[int, dict]:
             "position": pos or "",
         }
         for pid, first, last, pos in zip(
-            df.player_id, df.first_name, df.last_name, df.position_code, strict=False,
+            df.player_id,
+            df.first_name,
+            df.last_name,
+            df.position_code,
+            strict=False,
         )
     }
 
@@ -312,9 +319,9 @@ def _rink_boundary_points(n_per_corner: int = 24):
     pts = []
     corners = [
         (RINK_X - CORNER_R, -(RINK_Y - CORNER_R), -math.pi / 2),  # bottom-right
-        (RINK_X - CORNER_R,   RINK_Y - CORNER_R,   0.0),           # top-right
-        (-(RINK_X - CORNER_R), RINK_Y - CORNER_R,  math.pi / 2),   # top-left
-        (-(RINK_X - CORNER_R), -(RINK_Y - CORNER_R), math.pi),     # bottom-left
+        (RINK_X - CORNER_R, RINK_Y - CORNER_R, 0.0),  # top-right
+        (-(RINK_X - CORNER_R), RINK_Y - CORNER_R, math.pi / 2),  # top-left
+        (-(RINK_X - CORNER_R), -(RINK_Y - CORNER_R), math.pi),  # bottom-left
     ]
     for cx, cy, start_angle in corners:
         for i in range(n_per_corner + 1):
@@ -329,12 +336,16 @@ def _rink_shapes() -> list:
     shapes = []
 
     # Center red line
-    shapes.append(dict(type="line", x0=0, x1=0, y0=-RINK_Y, y1=RINK_Y,
-                       line=dict(color=LINE_RED, width=2)))
+    shapes.append(
+        dict(type="line", x0=0, x1=0, y0=-RINK_Y, y1=RINK_Y, line=dict(color=LINE_RED, width=2))
+    )
     # Blue lines
     for x in (-BLUE_LINE_X, BLUE_LINE_X):
-        shapes.append(dict(type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y,
-                           line=dict(color=LINE_BLUE, width=2)))
+        shapes.append(
+            dict(
+                type="line", x0=x, x1=x, y0=-RINK_Y, y1=RINK_Y, line=dict(color=LINE_BLUE, width=2)
+            )
+        )
     # Goal lines. Because |x|=89 falls inside the corner-arc zone (|x| > X-R),
     # the rink boundary at that x is below RINK_Y. Compute the exact board
     # intersection so the line ends at the boards rather than overshooting
@@ -343,35 +354,84 @@ def _rink_shapes() -> list:
         CORNER_R**2 - (GOAL_LINE_X - (RINK_X - CORNER_R)) ** 2
     )
     for x in (-GOAL_LINE_X, GOAL_LINE_X):
-        shapes.append(dict(type="line", x0=x, x1=x, y0=-goal_line_y, y1=goal_line_y,
-                           line=dict(color=LINE_RED, width=1)))
+        shapes.append(
+            dict(
+                type="line",
+                x0=x,
+                x1=x,
+                y0=-goal_line_y,
+                y1=goal_line_y,
+                line=dict(color=LINE_RED, width=1),
+            )
+        )
     # Center faceoff circle + dot
-    shapes.append(dict(type="circle", x0=-15, x1=15, y0=-15, y1=15,
-                       line=dict(color=LINE_BLUE, width=1.5)))
-    shapes.append(dict(type="circle", x0=-0.7, x1=0.7, y0=-0.7, y1=0.7,
-                       line=dict(color=LINE_BLUE), fillcolor=LINE_BLUE))
+    shapes.append(
+        dict(type="circle", x0=-15, x1=15, y0=-15, y1=15, line=dict(color=LINE_BLUE, width=1.5))
+    )
+    shapes.append(
+        dict(
+            type="circle",
+            x0=-0.7,
+            x1=0.7,
+            y0=-0.7,
+            y1=0.7,
+            line=dict(color=LINE_BLUE),
+            fillcolor=LINE_BLUE,
+        )
+    )
     # End faceoff circles + dots
     for end_sign in (-1, 1):
         for y in (-22, 22):
             cx = end_sign * 69
             cy = y
-            shapes.append(dict(type="circle", x0=cx - 15, x1=cx + 15,
-                               y0=cy - 15, y1=cy + 15,
-                               line=dict(color=LINE_RED, width=1.5)))
-            shapes.append(dict(type="circle", x0=cx - 1, x1=cx + 1,
-                               y0=cy - 1, y1=cy + 1,
-                               line=dict(color=LINE_RED), fillcolor=LINE_RED))
+            shapes.append(
+                dict(
+                    type="circle",
+                    x0=cx - 15,
+                    x1=cx + 15,
+                    y0=cy - 15,
+                    y1=cy + 15,
+                    line=dict(color=LINE_RED, width=1.5),
+                )
+            )
+            shapes.append(
+                dict(
+                    type="circle",
+                    x0=cx - 1,
+                    x1=cx + 1,
+                    y0=cy - 1,
+                    y1=cy + 1,
+                    line=dict(color=LINE_RED),
+                    fillcolor=LINE_RED,
+                )
+            )
         # Goal crease (rough approximation as half-rect)
         gx = end_sign * GOAL_LINE_X
-        shapes.append(dict(type="rect", x0=gx - end_sign * 4.5, x1=gx, y0=-4, y1=4,
-                           line=dict(color=LINE_RED, width=1),
-                           fillcolor="rgba(31, 119, 180, 0.18)"))
+        shapes.append(
+            dict(
+                type="rect",
+                x0=gx - end_sign * 4.5,
+                x1=gx,
+                y0=-4,
+                y1=4,
+                line=dict(color=LINE_RED, width=1),
+                fillcolor="rgba(31, 119, 180, 0.18)",
+            )
+        )
     # Neutral-zone faceoff dots
     for x in (-20, 20):
         for y in (-22, 22):
-            shapes.append(dict(type="circle", x0=x - 1, x1=x + 1,
-                               y0=y - 1, y1=y + 1,
-                               line=dict(color=LINE_RED), fillcolor=LINE_RED))
+            shapes.append(
+                dict(
+                    type="circle",
+                    x0=x - 1,
+                    x1=x + 1,
+                    y0=y - 1,
+                    y1=y + 1,
+                    line=dict(color=LINE_RED),
+                    fillcolor=LINE_RED,
+                )
+            )
     # Plotly defaults shapes to layer="above", which would draw faceoff
     # circles, blue lines, and creases ON TOP of player markers + sweater
     # number text. Force the rink markings below all traces so players
@@ -389,8 +449,10 @@ def _boundary_path_shape() -> dict:
     pts = _rink_boundary_points()
     path = "M " + " L ".join(f"{x},{y}" for x, y in pts) + " Z"
     return dict(
-        type="path", path=path,
-        fillcolor=ICE_BG, line=dict(color="white", width=2.5),
+        type="path",
+        path=path,
+        fillcolor=ICE_BG,
+        line=dict(color="white", width=2.5),
         layer="below",
     )
 
@@ -404,10 +466,15 @@ def _rink_figure() -> go.Figure:
     shapes = [_boundary_path_shape(), *_rink_shapes()]
     fig = go.Figure()
     fig.update_layout(
-        xaxis=dict(range=[-RINK_X - 4, RINK_X + 4], showgrid=False,
-                   zeroline=False, visible=False),
-        yaxis=dict(range=[-RINK_Y - 4, RINK_Y + 4], scaleanchor="x",
-                   scaleratio=1, showgrid=False, zeroline=False, visible=False),
+        xaxis=dict(range=[-RINK_X - 4, RINK_X + 4], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(
+            range=[-RINK_Y - 4, RINK_Y + 4],
+            scaleanchor="x",
+            scaleratio=1,
+            showgrid=False,
+            zeroline=False,
+            visible=False,
+        ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
@@ -419,16 +486,19 @@ def _rink_figure() -> go.Figure:
 
 
 def _pie(values: list, labels: list, title: str, sort: bool = True) -> go.Figure:
-    fig = go.Figure(go.Pie(
-        values=values, labels=labels,
-        hole=0.45,
-        textposition="inside",
-        textinfo="label+percent",
-        marker=dict(line=dict(color="#0e1217", width=2)),
-        # Pass sort=False for charts whose category order is meaningful (the
-        # period pie wants P1/P2/P3 in temporal order, not descending count).
-        sort=sort,
-    ))
+    fig = go.Figure(
+        go.Pie(
+            values=values,
+            labels=labels,
+            hole=0.45,
+            textposition="inside",
+            textinfo="label+percent",
+            marker=dict(line=dict(color="#0e1217", width=2)),
+            # Pass sort=False for charts whose category order is meaningful (the
+            # period pie wants P1/P2/P3 in temporal order, not descending count).
+            sort=sort,
+        )
+    )
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),
         showlegend=False,
@@ -441,7 +511,10 @@ def _pie(values: list, labels: list, title: str, sort: bool = True) -> go.Figure
 
 
 def _player_card(
-    name: str, team: str, position: str, headshot_url: str | None,
+    name: str,
+    team: str,
+    position: str,
+    headshot_url: str | None,
     goals: int | None = None,
 ) -> str:
     """Player-identity card with headshot (or initials fallback) + name + meta.
@@ -474,7 +547,8 @@ def _player_card(
     goals_meta = (
         f"<div style='color:{accent}; font-size:0.85em; font-weight:600; "
         f"margin-top:2px;'>{goals} goals</div>"
-        if goals is not None else ""
+        if goals is not None
+        else ""
     )
     return (
         f"<div style='{CARD_BASE_STYLE} border-left:4px solid {accent}; "
@@ -558,25 +632,25 @@ def _tracking_rows_to_frames(rows: list[dict]) -> list[dict]:
     for r in rows:
         on_ice = {
             "1": {
-                "id":            1,
-                "playerId":      "",
-                "x":             r["puck_x_in"],
-                "y":             r["puck_y_in"],
+                "id": 1,
+                "playerId": "",
+                "x": r["puck_x_in"],
+                "y": r["puck_y_in"],
                 "sweaterNumber": "",
-                "teamId":        "",
-                "teamAbbrev":    "",
+                "teamId": "",
+                "teamAbbrev": "",
             },
         }
         for p in r["on_ice"] or []:
             pid = p["player_id"]
             on_ice[str(pid)] = {
-                "id":            pid,
-                "playerId":      pid,
-                "x":             p["x_in"],
-                "y":             p["y_in"],
+                "id": pid,
+                "playerId": pid,
+                "x": p["x_in"],
+                "y": p["y_in"],
                 "sweaterNumber": p["sweater"],
-                "teamId":        p["team_id"],
-                "teamAbbrev":    p["team_abbrev"],
+                "teamId": p["team_id"],
+                "teamAbbrev": p["team_abbrev"],
             }
         out.append({"timeStamp": r["timestamp_ds"], "onIce": on_ice})
     return out
@@ -605,40 +679,42 @@ def _fetch_tracking_gold_sequence(season: int, game_id: int, event_id: int):
     rows = arrow.to_pylist()
     if not rows:
         raise RuntimeError(
-            "No gold.goal_tracking_sequences row found for "
-            f"game_id={game_id}, event_id={event_id}"
+            f"No gold.goal_tracking_sequences row found for game_id={game_id}, event_id={event_id}"
         )
     return _tracking_rows_to_frames(rows[0]["frames"] or [])
 
 
 # Status → icon mapping for the goal table.
 STATUS_ICONS = {
-    "available":              "▶",
-    "not_tracked":            "⊘",
-    "fetch_failed":           "⚠",
-    "no_url":                 "—",
-    "not_attempted":          "—",
+    "available": "▶",
+    "not_tracked": "⊘",
+    "fetch_failed": "⚠",
+    "no_url": "—",
+    "not_attempted": "—",
     "pending_gold_sequence_rebuild": "—",
     "pending_silver_rebuild": "—",
 }
 # Tracking-panel storytelling constants.
-TRAIL_FRAMES = 30            # ~3 seconds of puck history at the 10Hz feed
-TRAIL_COLOR = "#ffce00"      # gold; reads well against ice + team colors
+TRAIL_FRAMES = 30  # ~3 seconds of puck history at the 10Hz feed
+TRAIL_COLOR = "#ffce00"  # gold; reads well against ice + team colors
 SCORER_HIGHLIGHT_COLOR = "#ffce00"  # matches trail; clearly the goal hero
-SCORER_MARKER_SIZE = 28      # vs 22 for everyone else
-SCORER_BORDER_WIDTH = 4      # vs 1.5 for everyone else
+SCORER_MARKER_SIZE = 28  # vs 22 for everyone else
+SCORER_BORDER_WIDTH = 4  # vs 1.5 for everyone else
 
 # Speed presets for the animation. Plotly's frame.duration is the per-frame
 # delay in ms; smaller = faster. Defaults to Normal on first render.
 SPEED_PRESETS = {
-    "▶ Slow":   200,
-    "▶ Normal":  70,
-    "▶ Fast":    30,
+    "▶ Slow": 200,
+    "▶ Normal": 70,
+    "▶ Fast": 30,
 }
 
 
 def _frame_team_data(
-    frame: dict, teams: list[str], id_to_name: dict, scorer_id: int | None,
+    frame: dict,
+    teams: list[str],
+    id_to_name: dict,
+    scorer_id: int | None,
 ):
     """Bin a single frame's onIce entries into per-team trace data + the puck.
 
@@ -646,10 +722,7 @@ def _frame_team_data(
     matching order. The caller turns is_scorer into per-marker size + border
     arrays — kept here as a flag instead of styled values so we don't need
     to pass the team's fill color in just to compute the non-scorer border."""
-    by_team = {
-        t: {"x": [], "y": [], "text": [], "hover": [], "is_scorer": []}
-        for t in teams
-    }
+    by_team = {t: {"x": [], "y": [], "text": [], "hover": [], "is_scorer": []} for t in teams}
     puck_x: list[float] = []
     puck_y: list[float] = []
     for key, entry in frame["onIce"].items():
@@ -671,7 +744,8 @@ def _frame_team_data(
         by_team[team]["y"].append(y_ft)
         by_team[team]["text"].append(sweater)
         by_team[team]["hover"].append(
-            f"{name} (#{sweater}, {team}){scorer_tag}" if name
+            f"{name} (#{sweater}, {team}){scorer_tag}"
+            if name
             else f"#{sweater} ({team}){scorer_tag}"
         )
         by_team[team]["is_scorer"].append(is_scorer)
@@ -715,14 +789,14 @@ def _build_team_marker_arrays(d: dict, fill: str):
     default_border = _text_on(fill)
     sizes = [SCORER_MARKER_SIZE if s else 22 for s in d["is_scorer"]]
     border_widths = [SCORER_BORDER_WIDTH if s else 1.5 for s in d["is_scorer"]]
-    border_colors = [
-        SCORER_HIGHLIGHT_COLOR if s else default_border for s in d["is_scorer"]
-    ]
+    border_colors = [SCORER_HIGHLIGHT_COLOR if s else default_border for s in d["is_scorer"]]
     return sizes, border_widths, border_colors
 
 
 def _tracking_animation(
-    frames: list, id_to_name: dict, home_team: str | None,
+    frames: list,
+    id_to_name: dict,
+    home_team: str | None,
     scorer_id: int | None = None,
 ) -> go.Figure:
     """Animated rink view of the whole goal sequence.
@@ -742,10 +816,9 @@ def _tracking_animation(
     (e.g. "-12.3s", "0.0s") rather than raw frame indices."""
     fig = _rink_figure()
 
-    teams_seen = sorted({
-        e.get("teamAbbrev") for f in frames
-        for k, e in f["onIce"].items() if str(k) != "1"
-    })
+    teams_seen = sorted(
+        {e.get("teamAbbrev") for f in frames for k, e in f["onIce"].items() if str(k) != "1"}
+    )
     if len(teams_seen) < 2:
         teams_seen = [*teams_seen, "?", "?"][:2]
     teams = teams_seen[:2]
@@ -757,55 +830,78 @@ def _tracking_animation(
     # Initial rendered state = LAST frame (the goal moment). The Plotly
     # slider's `active` is also set to len(frames)-1 below.
     init_team, init_puck_x, init_puck_y = _frame_team_data(
-        frames[-1], teams, id_to_name, scorer_id,
+        frames[-1],
+        teams,
+        id_to_name,
+        scorer_id,
     )
     for team in teams:
         d = init_team[team]
         fill = palette[team]
         text_color = _text_on(fill)
         sizes, border_widths, border_colors = _build_team_marker_arrays(d, fill)
-        fig.add_trace(go.Scatter(
-            x=d["x"], y=d["y"], mode="markers+text",
+        fig.add_trace(
+            go.Scatter(
+                x=d["x"],
+                y=d["y"],
+                mode="markers+text",
+                marker=dict(
+                    size=sizes,
+                    color=fill,
+                    line=dict(color=border_colors, width=border_widths),
+                ),
+                text=d["text"],
+                textposition="middle center",
+                textfont=dict(color=text_color, size=11),
+                name=team,
+                hovertext=d["hover"],
+                hovertemplate="%{hovertext}<extra></extra>",
+            )
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=init_puck_x,
+            y=init_puck_y,
+            mode="markers",
             marker=dict(
-                size=sizes, color=fill,
-                line=dict(color=border_colors, width=border_widths),
+                size=12, color="black", symbol="circle", line=dict(color="white", width=1.5)
             ),
-            text=d["text"], textposition="middle center",
-            textfont=dict(color=text_color, size=11),
-            name=team,
-            hovertext=d["hover"], hovertemplate="%{hovertext}<extra></extra>",
-        ))
-    fig.add_trace(go.Scatter(
-        x=init_puck_x, y=init_puck_y, mode="markers",
-        marker=dict(size=12, color="black", symbol="circle",
-                    line=dict(color="white", width=1.5)),
-        name="puck", hovertemplate="puck<extra></extra>",
-    ))
+            name="puck",
+            hovertemplate="puck<extra></extra>",
+        )
+    )
     # Puck trail — semi-transparent line. Stays under the puck marker since
     # it's added after the player markers but before the puck (in render
     # order it's the second-to-last trace).
     init_trail_x, init_trail_y = _puck_trail(frames, len(frames) - 1)
-    fig.add_trace(go.Scatter(
-        x=init_trail_x, y=init_trail_y, mode="lines",
-        line=dict(color=TRAIL_COLOR, width=2.5),
-        opacity=0.6,
-        name="puck trail",
-        hoverinfo="skip",
-        showlegend=True,
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=init_trail_x,
+            y=init_trail_y,
+            mode="lines",
+            line=dict(color=TRAIL_COLOR, width=2.5),
+            opacity=0.6,
+            name="puck trail",
+            hoverinfo="skip",
+            showlegend=True,
+        )
+    )
 
     # Indices of the 4 dynamic traces (rink shapes don't take indices)
     dynamic_idx = [
-        len(fig.data) - 4,   # home team
-        len(fig.data) - 3,   # away team
-        len(fig.data) - 2,   # puck
-        len(fig.data) - 1,   # puck trail
+        len(fig.data) - 4,  # home team
+        len(fig.data) - 3,  # away team
+        len(fig.data) - 2,  # puck
+        len(fig.data) - 1,  # puck trail
     ]
 
     plotly_frames = []
     for i, frame in enumerate(frames):
         frame_team, frame_puck_x, frame_puck_y = _frame_team_data(
-            frame, teams, id_to_name, scorer_id,
+            frame,
+            teams,
+            id_to_name,
+            scorer_id,
         )
         trail_x, trail_y = _puck_trail(frames, i)
         traces = []
@@ -813,13 +909,19 @@ def _tracking_animation(
             d = frame_team[team]
             fill = palette[team]
             sizes, border_widths, border_colors = _build_team_marker_arrays(d, fill)
-            traces.append(go.Scatter(
-                x=d["x"], y=d["y"], text=d["text"], hovertext=d["hover"],
-                marker=dict(
-                    size=sizes, color=fill,
-                    line=dict(color=border_colors, width=border_widths),
-                ),
-            ))
+            traces.append(
+                go.Scatter(
+                    x=d["x"],
+                    y=d["y"],
+                    text=d["text"],
+                    hovertext=d["hover"],
+                    marker=dict(
+                        size=sizes,
+                        color=fill,
+                        line=dict(color=border_colors, width=border_widths),
+                    ),
+                )
+            )
         traces.append(go.Scatter(x=frame_puck_x, y=frame_puck_y))
         traces.append(go.Scatter(x=trail_x, y=trail_y))
         plotly_frames.append(go.Frame(name=str(i), data=traces, traces=dynamic_idx))
@@ -831,62 +933,80 @@ def _tracking_animation(
         {
             "label": label,
             "method": "animate",
-            "args": [None, {
-                "frame": {"duration": duration, "redraw": True},
-                "fromcurrent": True,
-                "transition": {"duration": 0},
-            }],
+            "args": [
+                None,
+                {
+                    "frame": {"duration": duration, "redraw": True},
+                    "fromcurrent": True,
+                    "transition": {"duration": 0},
+                },
+            ],
         }
         for label, duration in SPEED_PRESETS.items()
     ]
     pause_button = {
         "label": "⏸ Pause",
         "method": "animate",
-        "args": [[None], {
-            "frame": {"duration": 0, "redraw": False},
-            "mode": "immediate",
-            "transition": {"duration": 0},
-        }],
+        "args": [
+            [None],
+            {
+                "frame": {"duration": 0, "redraw": False},
+                "mode": "immediate",
+                "transition": {"duration": 0},
+            },
+        ],
     }
 
     fig.update_layout(
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                    bgcolor="rgba(0,0,0,0)"),
-        updatemenus=[{
-            "type": "buttons",
-            "direction": "left",
-            "x": 0.0, "xanchor": "left",
-            "y": -0.08, "yanchor": "top",
-            "pad": {"r": 10, "t": 10},
-            "showactive": False,
-            "buttons": [*play_buttons, pause_button],
-        }],
-        sliders=[{
-            "active": len(frames) - 1,
-            "x": 0.1, "xanchor": "left",
-            "y": -0.05, "yanchor": "top",
-            "len": 0.88,
-            "currentvalue": {
-                "prefix": "t = ", "suffix": "s before goal",
-                "visible": True, "xanchor": "right",
-            },
-            "steps": [
-                {
-                    "args": [[str(i)], {
-                        "frame": {"duration": 0, "redraw": True},
-                        "mode": "immediate",
-                        "transition": {"duration": 0},
-                    }],
-                    # Render the relative-time label (e.g. "-12.3" or "0.0")
-                    # without units — the slider's currentvalue prefix/suffix
-                    # provides the "t = ... s before goal" framing.
-                    "label": f"{abs(rel_secs[i]):.1f}" if rel_secs else str(i),
-                    "method": "animate",
-                }
-                for i in range(len(frames))
-            ],
-        }],
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, bgcolor="rgba(0,0,0,0)"),
+        updatemenus=[
+            {
+                "type": "buttons",
+                "direction": "left",
+                "x": 0.0,
+                "xanchor": "left",
+                "y": -0.08,
+                "yanchor": "top",
+                "pad": {"r": 10, "t": 10},
+                "showactive": False,
+                "buttons": [*play_buttons, pause_button],
+            }
+        ],
+        sliders=[
+            {
+                "active": len(frames) - 1,
+                "x": 0.1,
+                "xanchor": "left",
+                "y": -0.05,
+                "yanchor": "top",
+                "len": 0.88,
+                "currentvalue": {
+                    "prefix": "t = ",
+                    "suffix": "s before goal",
+                    "visible": True,
+                    "xanchor": "right",
+                },
+                "steps": [
+                    {
+                        "args": [
+                            [str(i)],
+                            {
+                                "frame": {"duration": 0, "redraw": True},
+                                "mode": "immediate",
+                                "transition": {"duration": 0},
+                            },
+                        ],
+                        # Render the relative-time label (e.g. "-12.3" or "0.0")
+                        # without units — the slider's currentvalue prefix/suffix
+                        # provides the "t = ... s before goal" framing.
+                        "label": f"{abs(rel_secs[i]):.1f}" if rel_secs else str(i),
+                        "method": "animate",
+                    }
+                    for i in range(len(frames))
+                ],
+            }
+        ],
     )
     return fig
 
@@ -951,11 +1071,13 @@ def _legend_rows(frames: list, id_to_name: dict) -> list[dict]:
 def _compare_shot_trace(shots_df, name: str, color: str) -> go.Scatter:
     """One player's goals as a Scatter trace for the compare-mode overlay."""
     return go.Scatter(
-        x=shots_df["x_coord"], y=shots_df["y_coord"],
+        x=shots_df["x_coord"],
+        y=shots_df["y_coord"],
         mode="markers",
         name=f"{name} ({len(shots_df)})",
         marker=dict(
-            size=15, color=color,
+            size=15,
+            color=color,
             line=dict(color=_text_on(color), width=1.5),
             symbol="circle",
         ),
@@ -973,7 +1095,11 @@ def _compare_shot_trace(shots_df, name: str, color: str) -> go.Scatter:
 
 
 def _compare_breakdown_row(
-    title: str, counts_a, counts_b, name_a: str, name_b: str,
+    title: str,
+    counts_a,
+    counts_b,
+    name_a: str,
+    name_b: str,
     sort: bool = True,
 ):
     """One row of two pies (same dimension, one per player) for the compare
@@ -982,20 +1108,23 @@ def _compare_breakdown_row(
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(
-            _pie(counts_a.values.tolist(), counts_a.index.tolist(),
-                 name_a, sort=sort),
+            _pie(counts_a.values.tolist(), counts_a.index.tolist(), name_a, sort=sort),
             use_container_width=True,
         )
     with c2:
         st.plotly_chart(
-            _pie(counts_b.values.tolist(), counts_b.index.tolist(),
-                 name_b, sort=sort),
+            _pie(counts_b.values.tolist(), counts_b.index.tolist(), name_b, sort=sort),
             use_container_width=True,
         )
 
 
 def _render_compare(
-    shots_a, shots_b, name_a: str, name_b: str, team_a: str, team_b: str,
+    shots_a,
+    shots_b,
+    name_a: str,
+    name_b: str,
+    team_a: str,
+    team_b: str,
 ):
     """Side-by-side comparison view: overlay both players' goals on one rink
     plus paired breakdown pies. Tracking + per-goal table are intentionally
@@ -1011,7 +1140,10 @@ def _render_compare(
         showlegend=True,
         legend=dict(
             orientation="h",
-            x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+            x=0.5,
+            y=1.02,
+            xanchor="center",
+            yanchor="bottom",
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=11),
             itemsizing="constant",
@@ -1020,8 +1152,7 @@ def _render_compare(
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
-                unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>", unsafe_allow_html=True)
     st.markdown("### Breakdowns")
 
     # Shot type
@@ -1042,8 +1173,13 @@ def _render_compare(
             + [p for p in counts.index if p not in PERIOD_ORDER]
         )
         return _bucket_small_slices(counts, preserve_order=True)
+
     _compare_breakdown_row(
-        "Period", _periods(shots_a), _periods(shots_b), name_a, name_b,
+        "Period",
+        _periods(shots_a),
+        _periods(shots_b),
+        name_a,
+        name_b,
         sort=False,
     )
 
@@ -1054,10 +1190,13 @@ def _render_compare(
             axis=1,
         )
         return _bucket_small_slices(s.value_counts())
+
     _compare_breakdown_row(
         "Strength state",
-        _strength_counts(shots_a), _strength_counts(shots_b),
-        name_a, name_b,
+        _strength_counts(shots_a),
+        _strength_counts(shots_b),
+        name_a,
+        name_b,
     )
 
 
@@ -1078,8 +1217,8 @@ def main():
     con = _shots_connection()
 
     seasons = [
-        r[0] for r in
-        con.execute("SELECT DISTINCT season FROM shots ORDER BY season DESC").fetchall()
+        r[0]
+        for r in con.execute("SELECT DISTINCT season FROM shots ORDER BY season DESC").fetchall()
     ]
     if not seasons:
         st.warning("No data in gold.player_shots yet.")
@@ -1094,29 +1233,35 @@ def main():
     # NHL gameType encoding: 1 preseason, 2 regular season, 3 playoffs.
     GAME_TYPE_OPTIONS = {
         "Regular season": "game_type = 2",
-        "Preseason":      "game_type = 1",
-        "Playoffs":       "game_type = 3",
-        "All NHL":        "game_type IN (1, 2, 3)",
+        "Preseason": "game_type = 1",
+        "Playoffs": "game_type = 3",
+        "All NHL": "game_type IN (1, 2, 3)",
     }
 
     sidebar = st.sidebar
     sidebar.markdown("### Filters")
     season = sidebar.selectbox("Season", seasons, format_func=fmt_season)
     game_type_label = sidebar.selectbox(
-        "Game type", list(GAME_TYPE_OPTIONS.keys()), index=0,
+        "Game type",
+        list(GAME_TYPE_OPTIONS.keys()),
+        index=0,
     )
     type_pred = GAME_TYPE_OPTIONS[game_type_label]
 
-    teams = [r[0] for r in con.execute(
-        f"SELECT DISTINCT team_abbrev FROM shots "
-        f"WHERE season = ? AND {type_pred} ORDER BY team_abbrev",
-        [season],
-    ).fetchall()]
+    teams = [
+        r[0]
+        for r in con.execute(
+            f"SELECT DISTINCT team_abbrev FROM shots "
+            f"WHERE season = ? AND {type_pred} ORDER BY team_abbrev",
+            [season],
+        ).fetchall()
+    ]
     if not teams:
         st.warning(f"No goals for {fmt_season(season)} {game_type_label}.")
         return
     team = sidebar.selectbox(
-        "Team", teams,
+        "Team",
+        teams,
         index=teams.index("LAK") if "LAK" in teams else 0,
     )
 
@@ -1124,15 +1269,15 @@ def main():
     # to team would make the bounds jump as the user changed teams, a
     # worse UX than a slightly looser range.
     date_bounds = con.execute(
-        f"SELECT MIN(game_date), MAX(game_date) FROM shots "
-        f"WHERE season = ? AND {type_pred}",
+        f"SELECT MIN(game_date), MAX(game_date) FROM shots WHERE season = ? AND {type_pred}",
         [season],
     ).fetchone()
     date_min, date_max = date_bounds
     date_range = sidebar.date_input(
         "Date range",
         value=(date_min, date_max),
-        min_value=date_min, max_value=date_max,
+        min_value=date_min,
+        max_value=date_max,
     )
     # Streamlit returns a single-element tuple while the user is mid-pick
     # (only one end selected); coerce to a usable 2-tuple either way.
@@ -1172,8 +1317,10 @@ def main():
     if compare_on:
         team_b_default = next((t for t in teams if t != team), team)
         team_b = sidebar.selectbox(
-            "Team (compare)", teams,
-            index=teams.index(team_b_default), key="team_b",
+            "Team (compare)",
+            teams,
+            index=teams.index(team_b_default),
+            key="team_b",
         )
         players_b_rows = con.execute(
             f"""SELECT player_id, player_name, COUNT(*) AS goals
@@ -1189,11 +1336,11 @@ def main():
             sidebar.warning(f"No other goals for {team_b} in this slice.")
             compare_on = False
         else:
-            player_b_labels_ui = [
-                f"{name} ({goals})" for _id, name, goals in players_b_rows
-            ]
+            player_b_labels_ui = [f"{name} ({goals})" for _id, name, goals in players_b_rows]
             player_b_label = sidebar.selectbox(
-                "Player (compare)", player_b_labels_ui, key="player_b",
+                "Player (compare)",
+                player_b_labels_ui,
+                key="player_b",
             )
             idx_b = player_b_labels_ui.index(player_b_label)
             player_b_id = players_b_rows[idx_b][0]
@@ -1241,12 +1388,10 @@ def main():
     # Headshot URL is in every row of `shots` for the selected player — they
     # only differ if the player was traded mid-season; just take row 0.
     headshot_url = (
-        shots["player_headshot"].iloc[0] if len(shots) and "player_headshot" in shots
-        else None
+        shots["player_headshot"].iloc[0] if len(shots) and "player_headshot" in shots else None
     )
 
-    st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>",
-                unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 8px 0 16px 0; border-color: #243240;'>", unsafe_allow_html=True)
 
     if compare_on:
         # Two player cards (each with their goal count) side-by-side. Goal
@@ -1263,13 +1408,20 @@ def main():
         c1, c2 = st.columns(2)
         c1.markdown(
             _player_card(
-                player_name, team, position, headshot_url, goals=len(shots),
+                player_name,
+                team,
+                position,
+                headshot_url,
+                goals=len(shots),
             ),
             unsafe_allow_html=True,
         )
         c2.markdown(
             _player_card(
-                player_b_name, team_b, position_b, headshot_url_b,
+                player_b_name,
+                team_b,
+                position_b,
+                headshot_url_b,
                 goals=len(shots_b),
             ),
             unsafe_allow_html=True,
@@ -1281,10 +1433,8 @@ def main():
             unsafe_allow_html=True,
         )
         m2.markdown(metric_card("Team", team, accent), unsafe_allow_html=True)
-        m3.markdown(metric_card("Season", fmt_season(season), accent),
-                    unsafe_allow_html=True)
-        m4.markdown(metric_card("Goals", str(len(shots)), accent),
-                    unsafe_allow_html=True)
+        m3.markdown(metric_card("Season", fmt_season(season), accent), unsafe_allow_html=True)
+        m4.markdown(metric_card("Goals", str(len(shots)), accent), unsafe_allow_html=True)
 
     if compare_on:
         _render_compare(shots, shots_b, player_name, player_b_name, team, team_b)
@@ -1296,15 +1446,16 @@ def main():
     # One Scatter trace per period gives us a legend automatically.
     shots_with_period = shots.copy()
     shots_with_period["period_label"] = [
-        _period_label(r.period_number, r.period_type)
-        for r in shots.itertuples()
+        _period_label(r.period_number, r.period_type) for r in shots.itertuples()
     ]
     left, right = st.columns([2, 1])
     with left:
         view_mode = st.radio(
             "View",
             options=["Markers", "Heatmap", "Both"],
-            index=0, horizontal=True, key="goal_map_view_mode",
+            index=0,
+            horizontal=True,
+            key="goal_map_view_mode",
             label_visibility="collapsed",
         )
         fig = _rink_figure()
@@ -1318,18 +1469,21 @@ def main():
             # Bins set to give ~10ft cells across both axes — fine enough to
             # show real hotspots, coarse enough not to look noisy on the
             # smallish per-player datasets.
-            fig.add_trace(go.Histogram2dContour(
-                x=shots_with_period["x_coord"],
-                y=shots_with_period["y_coord"],
-                colorscale="Inferno",
-                nbinsx=20, nbinsy=9,
-                showscale=False,
-                contours=dict(coloring="fill", showlines=False),
-                opacity=0.65,
-                hovertemplate="density: %{z}<extra></extra>",
-                name="Density",
-                showlegend=False,
-            ))
+            fig.add_trace(
+                go.Histogram2dContour(
+                    x=shots_with_period["x_coord"],
+                    y=shots_with_period["y_coord"],
+                    colorscale="Inferno",
+                    nbinsx=20,
+                    nbinsy=9,
+                    showscale=False,
+                    contours=dict(coloring="fill", showlines=False),
+                    opacity=0.65,
+                    hovertemplate="density: %{z}<extra></extra>",
+                    name="Density",
+                    showlegend=False,
+                )
+            )
 
         if show_markers:
             for period in PERIOD_ORDER:
@@ -1337,25 +1491,29 @@ def main():
                 if sub.empty:
                     continue
                 color = PERIOD_COLORS[period]
-                fig.add_trace(go.Scatter(
-                    x=sub["x_coord"], y=sub["y_coord"],
-                    mode="markers",
-                    name=period,
-                    marker=dict(
-                        size=15, color=color,
-                        line=dict(color=_text_on(color), width=1.5),
-                        symbol="circle",
-                    ),
-                    text=[
-                        (
-                            f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
-                            f"{r.shot_type or 'unknown'} - {r.strength_state}"
-                            f"{' (empty net)' if r.is_empty_net else ''}"
-                        )
-                        for r in sub.itertuples()
-                    ],
-                    hovertemplate="%{text}<extra></extra>",
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=sub["x_coord"],
+                        y=sub["y_coord"],
+                        mode="markers",
+                        name=period,
+                        marker=dict(
+                            size=15,
+                            color=color,
+                            line=dict(color=_text_on(color), width=1.5),
+                            symbol="circle",
+                        ),
+                        text=[
+                            (
+                                f"{r.game_date} - P{r.period_number} {r.time_in_period}<br>"
+                                f"{r.shot_type or 'unknown'} - {r.strength_state}"
+                                f"{' (empty net)' if r.is_empty_net else ''}"
+                            )
+                            for r in sub.itertuples()
+                        ],
+                        hovertemplate="%{text}<extra></extra>",
+                    )
+                )
 
         # Period legend horizontally above the rink so it never overlaps the
         # ice. Only meaningful when markers are showing (heatmap-only mode
@@ -1364,7 +1522,10 @@ def main():
             showlegend=show_markers,
             legend=dict(
                 orientation="h",
-                x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+                x=0.5,
+                y=1.02,
+                xanchor="center",
+                yanchor="bottom",
                 bgcolor="rgba(0,0,0,0)",
                 font=dict(size=11),
                 itemsizing="constant",
@@ -1383,14 +1544,17 @@ def main():
         shots_for_table[""] = shots_for_table["tracking_status"].map(
             lambda s: STATUS_ICONS.get(s, "?")
         )
-        table = shots_for_table[["", "game_date", "period_number", "time_in_period",
-                                 "shot_type", "strength_state"]].rename(columns={
-            "game_date": "Date",
-            "period_number": "P",
-            "time_in_period": "Time",
-            "shot_type": "Shot",
-            "strength_state": "Strength",
-        })
+        table = shots_for_table[
+            ["", "game_date", "period_number", "time_in_period", "shot_type", "strength_state"]
+        ].rename(
+            columns={
+                "game_date": "Date",
+                "period_number": "P",
+                "time_in_period": "Time",
+                "shot_type": "Shot",
+                "strength_state": "Strength",
+            }
+        )
         table_event = st.dataframe(
             table,
             use_container_width=True,
@@ -1404,8 +1568,9 @@ def main():
     if table_event.selection.rows:
         idx = table_event.selection.rows[0]
         sel = shots.iloc[idx]
-        st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            "<hr style='margin: 24px 0 8px 0; border-color: #243240;'>", unsafe_allow_html=True
+        )
         header = (
             f"### Tracking — {sel.game_date}, "
             f"P{sel.period_number} {sel.time_in_period} "
@@ -1442,7 +1607,9 @@ def main():
             # in `shots` matches that filter, so it's the same value either way.
             try:
                 frames = _fetch_tracking_gold_sequence(
-                    int(season), int(sel.game_id), int(sel.event_id),
+                    int(season),
+                    int(sel.game_id),
+                    int(sel.event_id),
                 )
             except Exception as exc:
                 st.warning(lakehouse_error_message("gold.goal_tracking_sequences", exc))
@@ -1477,37 +1644,36 @@ def main():
                 )
                 st.plotly_chart(
                     _tracking_animation(
-                        frames, id_to_name, home_team, scorer_id,
+                        frames,
+                        id_to_name,
+                        home_team,
+                        scorer_id,
                     ),
                     use_container_width=True,
                 )
             with legend_col:
                 st.markdown("**On-ice players**")
                 legend = _legend_rows(frames, id_to_name)
-                st.markdown(_render_legend_html(legend),
-                            unsafe_allow_html=True)
+                st.markdown(_render_legend_html(legend), unsafe_allow_html=True)
 
     # Breakdowns
-    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>",
-                unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 24px 0 8px 0; border-color: #243240;'>", unsafe_allow_html=True)
     st.markdown("### Breakdowns")
     p1, p2, p3 = st.columns(3)
 
     # Shot type — long tail (8+ categories), bucket the small slices.
-    shot_counts = _bucket_small_slices(
-        shots["shot_type"].fillna("unknown").value_counts()
-    )
+    shot_counts = _bucket_small_slices(shots["shot_type"].fillna("unknown").value_counts())
     with p1:
         st.plotly_chart(
-            _pie(shot_counts.values.tolist(), shot_counts.index.tolist(),
-                 "Shot type"),
+            _pie(shot_counts.values.tolist(), shot_counts.index.tolist(), "Shot type"),
             use_container_width=True,
         )
 
     # Period — combine number + type so OT/SO show separately, then enforce
     # temporal ordering (P1/P2/P3/OT/SO) rather than alphabetical.
     period_series = shots.apply(
-        lambda r: _period_label(r.period_number, r.period_type), axis=1,
+        lambda r: _period_label(r.period_number, r.period_type),
+        axis=1,
     )
     period_counts = period_series.value_counts()
     period_counts = period_counts.reindex(
@@ -1517,8 +1683,7 @@ def main():
     period_counts = _bucket_small_slices(period_counts, preserve_order=True)
     with p2:
         st.plotly_chart(
-            _pie(period_counts.values.tolist(), period_counts.index.tolist(),
-                 "Period", sort=False),
+            _pie(period_counts.values.tolist(), period_counts.index.tolist(), "Period", sort=False),
             use_container_width=True,
         )
 
@@ -1527,13 +1692,12 @@ def main():
         if r.is_empty_net:
             return "EN"
         return r.strength_state or "unknown"
+
     strength_series = shots.apply(_strength_label, axis=1)
     strength_counts = _bucket_small_slices(strength_series.value_counts())
     with p3:
         st.plotly_chart(
-            _pie(strength_counts.values.tolist(),
-                 strength_counts.index.tolist(),
-                 "Strength state"),
+            _pie(strength_counts.values.tolist(), strength_counts.index.tolist(), "Strength state"),
             use_container_width=True,
         )
 

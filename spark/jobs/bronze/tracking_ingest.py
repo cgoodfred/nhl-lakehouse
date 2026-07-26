@@ -85,21 +85,23 @@ PPT_HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     ),
     "Referer": "https://www.nhl.com/",
-    "Origin":  "https://www.nhl.com",
+    "Origin": "https://www.nhl.com",
 }
 
-ATTEMPTS_SCHEMA = StructType([
-    StructField("game_id",           LongType(),      nullable=False),
-    StructField("event_id",          LongType(),      nullable=False),
-    StructField("season",            IntegerType(),   nullable=False),
-    StructField("source_url",        StringType(),    nullable=False),
-    StructField("source_object_key", StringType(),    nullable=True),
-    StructField("attempted_at",      TimestampType(), nullable=False),
-    StructField("status",            StringType(),    nullable=False),
-    StructField("http_code",         IntegerType(),   nullable=True),
-    StructField("frame_count",       IntegerType(),   nullable=True),
-    StructField("error_message",     StringType(),    nullable=True),
-])
+ATTEMPTS_SCHEMA = StructType(
+    [
+        StructField("game_id", LongType(), nullable=False),
+        StructField("event_id", LongType(), nullable=False),
+        StructField("season", IntegerType(), nullable=False),
+        StructField("source_url", StringType(), nullable=False),
+        StructField("source_object_key", StringType(), nullable=True),
+        StructField("attempted_at", TimestampType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("http_code", IntegerType(), nullable=True),
+        StructField("frame_count", IntegerType(), nullable=True),
+        StructField("error_message", StringType(), nullable=True),
+    ]
+)
 
 # Statuses that mean "tried, can be retried with --retry-transient".
 # invalid_payload is included because a Cloudflare interstitial returning a 200
@@ -110,17 +112,17 @@ TRANSIENT_STATUSES = ("http_other", "fetch_error", "invalid_payload")
 # Rate-limit / backoff defaults — mirror the Go ingest client (2 req/s sustained,
 # burst 5, 6 retries on 429, exponential 1s→60s).
 DEFAULT_RATE_PER_SEC = 2.0
-DEFAULT_BURST        = 5
-DEFAULT_MAX_RETRIES  = 6
-MAX_BACKOFF_SEC      = 60.0
-DEFAULT_TIMEOUT_SEC  = 30
+DEFAULT_BURST = 5
+DEFAULT_MAX_RETRIES = 6
+MAX_BACKOFF_SEC = 60.0
+DEFAULT_TIMEOUT_SEC = 30
 # Periodic flushes of the attempts table during the fetch loop. Each flush
 # triggers a catalog operation that refreshes the Lakekeeper OAuth2 token
 # (otherwise idle for the entire fetch window — long runs would hit
 # NotAuthorizedException at the final write when the token expires mid-loop).
 # Also caps blast radius: a catalog blip mid-loop only loses the unflushed
 # tail, not the whole 75-min run.
-DEFAULT_FLUSH_EVERY  = 500
+DEFAULT_FLUSH_EVERY = 500
 
 
 class TokenBucket:
@@ -132,11 +134,11 @@ class TokenBucket:
     requests fly without waiting before settling to the sustained rate."""
 
     def __init__(self, rate_per_sec: float, burst: int, _clock=time.monotonic):
-        self.rate     = float(rate_per_sec)
+        self.rate = float(rate_per_sec)
         self.capacity = float(burst)
-        self.tokens   = float(burst)
-        self._clock   = _clock
-        self._last    = _clock()
+        self.tokens = float(burst)
+        self._clock = _clock
+        self._last = _clock()
 
     def wait(self, _sleep=time.sleep) -> None:
         now = self._clock()
@@ -147,7 +149,7 @@ class TokenBucket:
             return
         sleep_for = (1.0 - self.tokens) / self.rate
         _sleep(sleep_for)
-        self._last  = self._clock()
+        self._last = self._clock()
         self.tokens = 0.0
 
 
@@ -170,8 +172,8 @@ class FetchResult:
     # 'success' | 'http_404' | 'http_other' | 'fetch_error' | 'invalid_payload'
     status: str
     http_code: int | None
-    body: bytes | None                  # populated only on success
-    frame_count: int | None             # populated only on success
+    body: bytes | None  # populated only on success
+    frame_count: int | None  # populated only on success
     error: str | None
 
 
@@ -202,7 +204,11 @@ def fetch_tracking(
             resp = requests.get(url, headers=headers, timeout=timeout)
         except requests.RequestException as exc:
             return FetchResult(
-                "fetch_error", None, None, None, f"{type(exc).__name__}: {exc}",
+                "fetch_error",
+                None,
+                None,
+                None,
+                f"{type(exc).__name__}: {exc}",
             )
 
         if resp.status_code == 429:
@@ -214,7 +220,10 @@ def fetch_tracking(
             # --retry-transient will still pick this up since http_other is
             # in TRANSIENT_STATUSES.
             return FetchResult(
-                "http_other", 429, None, None,
+                "http_other",
+                429,
+                None,
+                None,
                 f"exhausted {max_retries} retries on 429",
             )
 
@@ -222,24 +231,37 @@ def fetch_tracking(
             return FetchResult("http_404", 404, None, None, None)
         if resp.status_code != 200:
             return FetchResult(
-                "http_other", resp.status_code, None, None, resp.text[:200],
+                "http_other",
+                resp.status_code,
+                None,
+                None,
+                resp.text[:200],
             )
         # 200 — parse + validate before reporting success.
         try:
             parsed = json.loads(resp.content)
         except (ValueError, UnicodeDecodeError) as exc:
             return FetchResult(
-                "invalid_payload", 200, None, None,
+                "invalid_payload",
+                200,
+                None,
+                None,
                 f"JSON parse: {type(exc).__name__}: {exc}",
             )
         if not isinstance(parsed, list):
             return FetchResult(
-                "invalid_payload", 200, None, None,
+                "invalid_payload",
+                200,
+                None,
+                None,
                 f"expected top-level list, got {type(parsed).__name__}",
             )
         if not parsed:
             return FetchResult(
-                "invalid_payload", 200, None, None,
+                "invalid_payload",
+                200,
+                None,
+                None,
                 "expected non-empty list, got empty list",
             )
         return FetchResult("success", 200, resp.content, len(parsed), None)
@@ -291,7 +313,7 @@ def merge_attempts(
     overwritten."""
     if existing is None:
         return new_df
-    new_keys  = new_df.select("game_id", "event_id")
+    new_keys = new_df.select("game_id", "event_id")
     preserved = existing.join(new_keys, on=["game_id", "event_id"], how="left_anti")
     return preserved.unionByName(new_df)
 
@@ -336,10 +358,11 @@ def _flush(spark: SparkSession, existing: DataFrame | None, batch: list) -> Data
     attempts table — cheap at this scale and atomic from a reader's POV.
     The implicit catalog operation also refreshes the OAuth2 token, which
     is the load-bearing reason this exists."""
-    new_df   = spark.createDataFrame(batch, schema=ATTEMPTS_SCHEMA)
+    new_df = spark.createDataFrame(batch, schema=ATTEMPTS_SCHEMA)
     combined = merge_attempts(existing, new_df)
-    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts") \
-        .partitionedBy("season").createOrReplace()
+    combined.coalesce(1).writeTo("nhl.silver.tracking_attempts").partitionedBy(
+        "season"
+    ).createOrReplace()
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
@@ -348,28 +371,23 @@ def _object_key(season: int, game_id: int, event_id: int) -> str:
     # Spark partition discovery only picks up directory segments, so silver's
     # spark.read.json(...) with basePath=tracking/ would surface season and
     # game_id but NOT event_id if we used `event_id=NNN.json`.
-    return (
-        f"{BRONZE_PREFIX}/season={season}/game_id={game_id}"
-        f"/event_id={event_id}/tracking.json"
-    )
+    return f"{BRONZE_PREFIX}/season={season}/game_id={game_id}/event_id={event_id}/tracking.json"
 
 
 def main():
     spark = get_spark("bronze-tracking-ingest")
 
-    retry_transient = (
-        spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
-    )
-    season_raw   = spark.conf.get("spark.tracking.season", "").strip()
-    season       = int(season_raw) if season_raw else None
+    retry_transient = spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
+    season_raw = spark.conf.get("spark.tracking.season", "").strip()
+    season = int(season_raw) if season_raw else None
     rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
-    burst        = int(  spark.conf.get("spark.tracking.burst",        str(DEFAULT_BURST)))
-    max_retries  = int(  spark.conf.get("spark.tracking.max_retries",  str(DEFAULT_MAX_RETRIES)))
-    timeout_sec  = int(  spark.conf.get("spark.tracking.timeout_sec",  str(DEFAULT_TIMEOUT_SEC)))
-    flush_every  = int(  spark.conf.get("spark.tracking.flush_every",  str(DEFAULT_FLUSH_EVERY)))
+    burst = int(spark.conf.get("spark.tracking.burst", str(DEFAULT_BURST)))
+    max_retries = int(spark.conf.get("spark.tracking.max_retries", str(DEFAULT_MAX_RETRIES)))
+    timeout_sec = int(spark.conf.get("spark.tracking.timeout_sec", str(DEFAULT_TIMEOUT_SEC)))
+    flush_every = int(spark.conf.get("spark.tracking.flush_every", str(DEFAULT_FLUSH_EVERY)))
 
     existing = _read_existing(spark)
-    goals    = _read_goals(spark, season)
+    goals = _read_goals(spark, season)
     to_fetch = candidates(existing, goals, retry_transient).collect()
 
     print(
@@ -383,25 +401,28 @@ def main():
         print("bronze-tracking-ingest: nothing to fetch")
         return
 
-    s3      = _s3_client()
+    s3 = _s3_client()
     limiter = TokenBucket(rate_per_sec, burst)
     batch: list = []
     for i, row in enumerate(to_fetch, start=1):
         result = fetch_tracking(
-            row.ppt_replay_url, PPT_HEADERS,
-            limiter=limiter, timeout=timeout_sec, max_retries=max_retries,
+            row.ppt_replay_url,
+            PPT_HEADERS,
+            limiter=limiter,
+            timeout=timeout_sec,
+            max_retries=max_retries,
         )
         attempt = {
-            "game_id":           row.game_id,
-            "event_id":          row.event_id,
-            "season":            row.season,
-            "source_url":        row.ppt_replay_url,
+            "game_id": row.game_id,
+            "event_id": row.event_id,
+            "season": row.season,
+            "source_url": row.ppt_replay_url,
             "source_object_key": None,
-            "attempted_at":      datetime.now(timezone.utc),
-            "status":            result.status,
-            "http_code":         result.http_code,
-            "frame_count":       None,
-            "error_message":     result.error,
+            "attempted_at": datetime.now(timezone.utc),
+            "status": result.status,
+            "http_code": result.http_code,
+            "frame_count": None,
+            "error_message": result.error,
         }
         if result.status == "success":
             key = _object_key(row.season, row.game_id, row.event_id)
@@ -409,11 +430,13 @@ def main():
             # PUT lands only known-good JSON. frame_count comes from the same
             # parsed length — no second parse here.
             s3.put_object(
-                Bucket=BRONZE_BUCKET, Key=key,
-                Body=result.body, ContentType="application/json",
+                Bucket=BRONZE_BUCKET,
+                Key=key,
+                Body=result.body,
+                ContentType="application/json",
             )
             attempt["source_object_key"] = key
-            attempt["frame_count"]       = result.frame_count
+            attempt["frame_count"] = result.frame_count
         batch.append(attempt)
         if i % 100 == 0 or i == len(to_fetch):
             print(f"  {i}/{len(to_fetch)} attempted")
@@ -429,10 +452,7 @@ def main():
         _flush(spark, existing, batch)
         print(f"  flushed {len(batch)} attempts to silver.tracking_attempts (tail)")
 
-    summary = (
-        spark.read.table("nhl.silver.tracking_attempts")
-        .groupBy("status").count().collect()
-    )
+    summary = spark.read.table("nhl.silver.tracking_attempts").groupBy("status").count().collect()
     print("bronze-tracking-ingest: complete")
     for row in summary:
         print(f"  {row['status']}: {row['count']}")

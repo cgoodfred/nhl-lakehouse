@@ -31,18 +31,22 @@ from common import get_spark
 BRONZE_PATH = "s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
 
-_ROSTER_SPOT_STRUCT = StructType([
-    StructField("playerId", IntegerType()),
-    StructField("teamId", IntegerType()),
-    StructField("sweaterNumber", IntegerType()),
-    StructField("positionCode", StringType()),
-])
+_ROSTER_SPOT_STRUCT = StructType(
+    [
+        StructField("playerId", IntegerType()),
+        StructField("teamId", IntegerType()),
+        StructField("sweaterNumber", IntegerType()),
+        StructField("positionCode", StringType()),
+    ]
+)
 
 # `season` is NOT declared — comes from Hive-style path partition discovery.
-ROSTERS_SCHEMA = StructType([
-    StructField("id", LongType()),  # game_id at the envelope top level
-    StructField("rosterSpots", ArrayType(_ROSTER_SPOT_STRUCT)),
-])
+ROSTERS_SCHEMA = StructType(
+    [
+        StructField("id", LongType()),  # game_id at the envelope top level
+        StructField("rosterSpots", ArrayType(_ROSTER_SPOT_STRUCT)),
+    ]
+)
 
 
 def transform_game_rosters(raw_df: DataFrame) -> DataFrame:
@@ -75,11 +79,7 @@ def transform_game_rosters(raw_df: DataFrame) -> DataFrame:
 def main() -> None:
     spark = get_spark("silver-game-rosters")
 
-    raw = (
-        spark.read.schema(ROSTERS_SCHEMA)
-        .option("basePath", BRONZE_BASE)
-        .json(BRONZE_PATH)
-    )
+    raw = spark.read.schema(ROSTERS_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
 
     rosters = transform_game_rosters(raw)
 

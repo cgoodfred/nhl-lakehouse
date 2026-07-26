@@ -39,8 +39,7 @@ def transform_goal_tracking_sequences(frames_df: DataFrame) -> DataFrame:
     )
 
     return (
-        frames_df
-        .groupBy("season", "game_id", "event_id")
+        frames_df.groupBy("season", "game_id", "event_id")
         .agg(
             count("*").cast("int").alias("frame_count"),
             sort_array(collect_list(frame_struct)).alias("frames"),
@@ -62,8 +61,7 @@ def main() -> None:
     frames = spark.read.table("nhl.silver.tracking_frames")
     out = transform_goal_tracking_sequences(frames)
 
-    out.writeTo("nhl.gold.goal_tracking_sequences") \
-        .partitionedBy(col("season")).createOrReplace()
+    out.writeTo("nhl.gold.goal_tracking_sequences").partitionedBy(col("season")).createOrReplace()
 
     written = spark.read.table("nhl.gold.goal_tracking_sequences").count()
     print(f"gold-goal-tracking-sequences: complete (rows={written})")
