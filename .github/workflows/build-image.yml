@@ -47,6 +47,9 @@ jobs:
 
   open-image-bump-pr:
     needs: build
+    # Guard: workflow_dispatch on a non-main branch would otherwise open a
+    # pin PR against main pinning a SHA that isn't yet merged.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
       group: ingest-image-bump-pr
