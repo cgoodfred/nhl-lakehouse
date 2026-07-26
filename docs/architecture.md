@@ -80,7 +80,7 @@ SeaweedFS itself: master (`pi-master`, 5Gi), filer (`pi-node-one`, 20Gi), volume
 
 ## Orchestration
 
-Argo Workflows (`workflows/`) submits SparkApplication CRDs via the `resource:` action with `successCondition: status.applicationState.state == COMPLETED`. Argo polls the CRD to a terminal state; Spark Operator handles the driver/executor lifecycle. `timeToLiveSeconds: 60` on each SparkApplication auto-GCs driver pods after completion.
+Argo Workflows (`workflows/`) submits SparkApplication CRDs via the `resource:` action with `successCondition: status.applicationState.state == COMPLETED`. Argo polls the CRD to a terminal state; Spark Operator handles the driver/executor lifecycle. SparkApplications inlined by `workflows/templates/silver-single-table.yaml` set `timeToLiveSeconds: 60` for auto-GC of driver pods; the standalone `spark/k8s/**/*.yaml` manifests don't set a TTL and require manual cleanup.
 
 Templates:
 

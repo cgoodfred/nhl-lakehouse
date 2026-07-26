@@ -33,7 +33,7 @@ Columns (30):
 - **Grain**: one row per play event (~300/game)
 - **Partitioning**: `season`
 - **Source**: `s3a://nhl-bronze/play-by-play/**/game_*.json` → `plays[]` exploded
-- **Load**: partitioned overwrite by `season`
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
 - **Filters**: none (all event types retained)
 
 All event-detail columns are nullable — a play row only fills the fields relevant to its `type_desc_key`.
@@ -82,7 +82,7 @@ Columns: `team_id (int)`, `abbrev (string)`, `name (string)`, `first_seen_date (
 - **Partitioning**: `season`
 - **Source**: `s3a://nhl-bronze/play-by-play/**/game_*.json` → `rosterSpots[]` exploded
 - **Dedup**: none — bridge table; a player appears once per game they were rostered for
-- **Load**: partitioned overwrite by `season`
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
 
 Columns: `game_id (long)`, `player_id (int)`, `season (int)`, `team_id (int)`, `sweater_number (int)`, `position_code (string)`, `ingested_at (timestamp)`.
 
@@ -91,7 +91,7 @@ Columns: `game_id (long)`, `player_id (int)`, `season (int)`, `team_id (int)`, `
 - **Grain**: one row per frame per goal
 - **Partitioning**: `season`
 - **Source**: `s3a://nhl-bronze/tracking/**/tracking.json` (array of frame objects)
-- **Load**: partitioned overwrite by `season`
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
 
 Coordinate systems: raw feed uses inches from corner origin (`*_in`); derived `*_ft` fields convert to PBP feet with center origin (`(inches - center) / 12.0`, where center is `(1200, 510)` inches on the 200×85 ft rink).
 
@@ -131,7 +131,7 @@ Columns:
 - **Partitioning**: `season`
 - **Source**: `nhl.silver.{plays, games, players, teams}`
 - **Filters**: `type_desc_key = 'goal'` AND `scoring_player_id IS NOT NULL` AND coords non-null AND `game_type IN (1, 2, 3)` — excludes All-Star (4), 4 Nations (19), other exhibitions
-- **Load**: partitioned overwrite by `season`
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
 
 Columns: `event_id (long)`, `game_id (long)`, `game_date (date)`, `game_type (int)`, `home_team_abbrev (string)`, `season (int)`, `player_id (int)`, `player_name (string)` [= `first_name || ' ' || last_name`], `player_headshot (string)`, `team_id (int)`, `team_abbrev (string)`, `period_number (int)`, `period_type (string)`, `time_in_period (string)`, `x_coord (int)`, `y_coord (int)`, `shot_type (string)`, `strength_state (string)`, `is_empty_net (bool)`, `home_score (int)`, `away_score (int)`, `ppt_replay_url (string)`, `ingested_at (timestamp)`.
 
@@ -152,7 +152,7 @@ Single-enum column the viz switches on. `tracking_status` values:
 | `fetch_failed` | Attempted, got `http_other`/`fetch_error`/`invalid_payload` |
 | `pending_silver_rebuild` | Fetch succeeded but `silver.tracking_frames` not yet rebuilt |
 | `pending_gold_sequence_rebuild` | Silver rebuilt but `gold.goal_tracking_sequences` not yet |
-| `available` | Ready to serve (frames + sequences both present) |
+| `available` | Fetched successfully AND a `gold.goal_tracking_sequences` row exists (silver frames are not re-checked at this step — gold is downstream of silver, so in practice both correlate) |
 
 Columns: `game_id (long)`, `event_id (long)`, `season (int)`, `ppt_replay_url (string)`, `tracking_status (string)`, `frame_count (int)` [from `silver.tracking_frames`], `attempted_at (timestamp)`, `fetch_status (string)` [raw status from attempts], `http_code (int)`, `error_message (string)`, `ingested_at (timestamp)`.
 
@@ -161,7 +161,7 @@ Columns: `game_id (long)`, `event_id (long)`, `season (int)`, `ppt_replay_url (s
 - **Grain**: one row per goal (collapses per-frame rows from silver into a single ordered array)
 - **Partitioning**: `season`
 - **Source**: `nhl.silver.tracking_frames`
-- **Load**: partitioned overwrite by `season`
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
 
 Serving-shaped for viz animation playback. Drops derived silver columns (`puck_x_ft`, `puck_y_ft`, `rel_seconds`) — viz derives them client-side if needed.
 
