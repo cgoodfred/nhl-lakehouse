@@ -42,7 +42,7 @@ Each of these looks like something you might "clean up." Don't — every one has
 
 - **Commits**: Conventional Commits with component scope — `feat(spark): ...`, `fix(viz): ...`, `chore(infra): ...`. Scopes: `ingest`, `spark`, `viz`, `workflows`, `infra`, `deps`.
 - **Pre-PR**: Spark → `uv run ruff check . && uv run pytest`; Ingest → `go vet ./... && go test -race ./...`; Infra → `tofu fmt && tofu validate`; Argo templates have no automated lint yet.
-- **Deploy**: push to `main` builds+pushes images (`ghcr.io/cgoodfred/nhl-lakehouse/*`); infra changes on `main` trigger `tofu apply` on the self-hosted `pi-cluster` runner.
+- **Deploy**: path-filtered image builds on `main` push to `ghcr.io/cgoodfred/nhl-lakehouse/*` (no workload restart — new Ingest/Spark pods pull `:latest` on their next submission). **Every** push to `main` (no paths filter) triggers `deploy.yml` → `tofu apply` on the self-hosted `pi-cluster` runner, so shared TF state is touched on every merge.
 
 ## Don't
 

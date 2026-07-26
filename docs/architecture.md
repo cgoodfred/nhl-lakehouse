@@ -118,11 +118,11 @@ Terraform state lives as a K8s Secret (`tfstate-default-lakehouse-state` in `lak
 
 Push flow:
 
-1. Push to `main` → path-filtered image builds (`build-image.yml`, `build-spark-image.yml`, `build-viz-image.yml`) push to `ghcr.io/cgoodfred/nhl-lakehouse/{ingest,spark,viz}` with `:latest` and `:${sha}` tags.
-2. Push to `main` touching `infra/**` → `deploy.yml` runs `tofu apply` on the self-hosted `pi-cluster` runner.
-3. Viz builds additionally open `chore/pin-viz-image` PRs that pin the new SHA into `infra/viz.tf`. Merging the PR is the actual viz rollout.
+1. Push to `main` → path-filtered image builds (`build-image.yml`, `build-spark-image.yml`, `build-viz-image.yml`) push to `ghcr.io/cgoodfred/nhl-lakehouse/{ingest,spark,viz}` with `:latest` and `:${sha}` tags. Nothing is restarted or resubmitted; the images just sit in the registry.
+2. **Every** push to `main` (no paths filter) → `deploy.yml` runs `tofu plan` / `tofu apply` on the self-hosted `pi-cluster` runner. Even docs-only pushes trigger it, so shared Terraform state is touched on every merge.
+3. Viz builds additionally open `chore/pin-viz-image` PRs that pin the new SHA into `infra/viz.tf`. Merging the PR is the actual viz rollout (via step 2 re-applying with the new pin).
 
-Ingest and Spark deploy immediately via `imagePullPolicy: Always` on `:latest` — no rollback safety net.
+Ingest and Spark have no rollout step: `imagePullPolicy: Always` on `:latest` means the *next newly created* Ingest/Spark pod pulls the current `:latest` image. In-flight pods and Deployments are not restarted by a build, so there's no rollback safety net and no immediate deploy.
 
 ## Stack rationale
 
