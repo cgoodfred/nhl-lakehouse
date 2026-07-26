@@ -25,11 +25,11 @@ Iceberg namespaces: `nhl.silver.{games, plays, players, teams, game_rosters, tra
 
 Each of these looks like something you might "clean up." Don't — every one has a real reason.
 
-- **Spark runtime is Python 3.8** (`apache/spark:3.5.7-python3`); dev is 3.12. All jobs use `from __future__ import annotations`. Runtime code must be 3.8-compatible (no `datetime.UTC`, no PEP 604 unions outside annotations).
+- **Spark runtime is Python 3.8** (`apache/spark:3.5.7-python3`); dev is 3.12. Jobs using modern annotation syntax must use `from __future__ import annotations`. Runtime code must be 3.8-compatible (no `datetime.UTC`, no PEP 604 unions outside annotations).
 - **`spark/entrypoint.sh`** materializes Lakekeeper/S3 creds into `spark.properties` before launching the driver. Iceberg's `SparkCatalog` reads options via `SparkConf.getAllWithPrefix`, which bypasses Spark's `${env:VAR}` substitution — so env-var interpolation for `spark.sql.catalog.nhl.*` doesn't work.
-- **Every SparkApplication manifest** sets `spark.sql.catalog.nhl.rest.metrics-reporter-impl: org.apache.iceberg.rest.LoggingMetricsReporter`. Default reporter has an OAuth token-refresh bug that flips completed jobs to FAILED after the snapshot commits.
+- **Every SparkApplication manifest** sets `spark.sql.catalog.nhl.rest.metrics-reporter-impl: org.apache.iceberg.metrics.LoggingMetricsReporter`. Default reporter has an OAuth token-refresh bug that flips completed jobs to FAILED after the snapshot commits.
 - **`workflows/templates/silver-full-rebuild.yaml` uses `parallelism: 1`** after a real quota-starvation failure. Argo polling pods (~500m) + Spark drivers (2c) at parallelism ≥3 overshoot the 10-CPU namespace quota. Raising parallelism requires also raising the quota in `infra/namespace.tf`. Math is in `workflows/README.md`.
-- **`viz/app.py` monkey-patches `socket.getaddrinfo`** when `KUBERNETES_SERVICE_HOST` is unset, redirecting `*.svc.cluster.local` to `127.0.0.1` for local port-forward dev. Update the hijack list if in-cluster service names change.
+- **`viz/lib.py` monkey-patches `socket.getaddrinfo`** when `KUBERNETES_SERVICE_HOST` is unset, redirecting `*.svc.cluster.local` to `127.0.0.1` for local port-forward dev. Update the hijack list if in-cluster service names change.
 - **Image pinning is asymmetric.** Viz is SHA-pinned via an auto-opened `chore/pin-viz-image` PR (`build-viz-image.yml` rewrites `infra/viz.tf` with perl regex + `tofu fmt`); merging the PR deploys. Ingest and Spark still use `:latest` with `imagePullPolicy: Always` — no rollback safety net.
 - **Terraform state is a K8s Secret** (`tfstate-default-lakehouse-state` in `lakehouse` ns; `backend "kubernetes"` in `infra/versions.tf`). Never run `tofu apply` locally while `deploy.yml` is running — both share the state.
 - **`infra/seaweedfs.tf` hardcodes node selectors** to `pi-master`, `pi-node-one`, `pi-node-two` by hostname. Rename a node and SeaweedFS won't schedule.
