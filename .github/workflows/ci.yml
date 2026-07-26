@@ -44,3 +44,33 @@ jobs:
 
       - name: tofu validate
         run: tofu validate
+
+  argo:
+    name: Argo Workflows (lint)
+    runs-on: ubuntu-latest
+    # Pinned to match the argo-workflows Helm chart 0.45.5 app version
+    # deployed in infra/argo-workflows.tf. Bump both together.
+    #
+    # ARGO_SHA256 is the SHA-256 of argo-linux-amd64.gz from the release
+    # assets. When bumping ARGO_VERSION, update this too — look it up in:
+    #   https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-workflows-cli-checksums.txt
+    env:
+      ARGO_VERSION: v3.6.2
+      ARGO_SHA256: 4bbddd2bb98d5fa9de88ec80170955cfd086b53b5bc83d2ec0b342f4b6f252fc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install argo CLI
+        run: |
+          set -euo pipefail
+          curl -sSLo /tmp/argo.gz "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz"
+          echo "${ARGO_SHA256}  /tmp/argo.gz" | sha256sum -c -
+          gunzip /tmp/argo.gz
+          chmod +x /tmp/argo
+          sudo mv /tmp/argo /usr/local/bin/argo
+          argo version --short
+
+      - name: argo lint (offline)
+        # Passing templates + workflows together so templateRef resolves
+        # without a live cluster.
+        run: argo lint --offline workflows/templates/*.yaml workflows/workflows/*.yaml
