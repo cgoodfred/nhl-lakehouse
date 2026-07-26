@@ -8,6 +8,8 @@ Personal end-to-end NHL data lakehouse on a 3-node on-prem Raspberry Pi Kubernet
 
 Flow: NHL API → `ingest` (Go, → S3 bronze) → Spark medallion jobs → Iceberg tables via Lakekeeper → Streamlit `viz`. Orchestrated by Argo Workflows submitting SparkApplication CRDs. Provisioned by OpenTofu with state in a K8s Secret.
 
+Deep dives: [`docs/architecture.md`](docs/architecture.md) (full topology + rationale) · [`docs/data-model.md`](docs/data-model.md) (every silver/gold table schema).
+
 ## Repo map
 
 | Path | What / deep-dive doc |
@@ -17,6 +19,7 @@ Flow: NHL API → `ingest` (Go, → S3 bronze) → Spark medallion jobs → Iceb
 | `viz/` | Streamlit dashboard · **`viz/README.md`** |
 | `workflows/` | Argo `WorkflowTemplate`s + `Workflow`s · **`workflows/README.md`** |
 | `infra/` | OpenTofu (flat, no modules) · **`infra/README.md`** |
+| `docs/` | Cross-cutting docs · `architecture.md`, `data-model.md` |
 | `.github/workflows/` | 6 workflows: per-component image builds, tests, `tofu apply` |
 
 Iceberg namespaces: `nhl.silver.{games, plays, players, teams, game_rosters, tracking_frames, tracking_attempts}`, `nhl.gold.{player_shots, goal_tracking_status, goal_tracking_sequences}`. `spark/viz/` is an empty stub — ignore.
@@ -39,7 +42,7 @@ Each of these looks like something you might "clean up." Don't — every one has
 
 - **Commits**: Conventional Commits with component scope — `feat(spark): ...`, `fix(viz): ...`, `chore(infra): ...`. Scopes: `ingest`, `spark`, `viz`, `workflows`, `infra`, `deps`.
 - **Pre-PR**: Spark → `uv run ruff check . && uv run pytest`; Ingest → `go vet ./... && go test -race ./...`; Infra → `tofu fmt && tofu validate`; Argo → `argo lint --offline workflows/templates/*.yaml workflows/workflows/*.yaml`.
-- **Deploy**: push to `main` builds+pushes images (`ghcr.io/cgoodfred/nhl-lakehouse/*`); infra changes on `main` trigger `tofu apply` on the self-hosted `pi-cluster` runner.
+- **Deploy**: path-filtered image builds on `main` push to `ghcr.io/cgoodfred/nhl-lakehouse/*` (no workload restart — new Ingest/Spark pods pull `:latest` on their next submission). **Every** push to `main` (no paths filter) triggers `deploy.yml` → `tofu apply` on the self-hosted `pi-cluster` runner, so shared TF state is touched on every merge.
 
 ## Don't
 
