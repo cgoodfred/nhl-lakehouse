@@ -8,6 +8,8 @@ Personal end-to-end NHL data lakehouse on a 3-node on-prem Raspberry Pi Kubernet
 
 Flow: NHL API → `ingest` (Go, → S3 bronze) → Spark medallion jobs → Iceberg tables via Lakekeeper → Streamlit `viz`. Orchestrated by Argo Workflows submitting SparkApplication CRDs. Provisioned by OpenTofu with state in a K8s Secret.
 
+Deep dives: [`docs/architecture.md`](docs/architecture.md) (full topology + rationale) · [`docs/data-model.md`](docs/data-model.md) (every silver/gold table schema).
+
 ## Repo map
 
 | Path | What / deep-dive doc |
@@ -17,6 +19,7 @@ Flow: NHL API → `ingest` (Go, → S3 bronze) → Spark medallion jobs → Iceb
 | `viz/` | Streamlit dashboard · **`viz/README.md`** |
 | `workflows/` | Argo `WorkflowTemplate`s + `Workflow`s · **`workflows/README.md`** |
 | `infra/` | OpenTofu (flat, no modules) · **`infra/README.md`** |
+| `docs/` | Cross-cutting docs · `architecture.md`, `data-model.md` |
 | `.github/workflows/` | 6 workflows: per-component image builds, tests, `tofu apply` |
 
 Iceberg namespaces: `nhl.silver.{games, plays, players, teams, game_rosters, tracking_frames, tracking_attempts}`, `nhl.gold.{player_shots, goal_tracking_status, goal_tracking_sequences}`. `spark/viz/` is an empty stub — ignore.
