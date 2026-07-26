@@ -4,13 +4,18 @@ on:
   push:
     branches: [main]
     paths:
+      # spark/k8s/** is excluded so pin-PR merges (which rewrite image tags
+      # in those manifests) don't retrigger the build → new pin PR loop.
+      # Kubernetes manifests don't require a rebuild anyway.
       - 'spark/**'
+      - '!spark/k8s/**'
       - '.github/workflows/build-spark-image.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+  pull-requests: write
 
 concurrency:
   group: build-spark-image
@@ -43,3 +48,86 @@ jobs:
             ghcr.io/cgoodfred/nhl-lakehouse/spark:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  open-image-bump-pr:
+    needs: build
+    # Guard: workflow_dispatch on a non-main branch would otherwise open a
+    # pin PR against main pinning a SHA that isn't yet merged.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: spark-image-bump-pr
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update spark image tag across all manifests + WorkflowTemplate
+        id: update
+        env:
+          SHA: ${{ github.sha }}
+          IMAGE: ghcr.io/cgoodfred/nhl-lakehouse/spark:${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Enumerate every file referencing the spark image so future
+          # manifests are picked up automatically.
+          mapfile -t FILES < <(grep -rl 'ghcr\.io/cgoodfred/nhl-lakehouse/spark:' spark/k8s workflows/templates 2>/dev/null | sort)
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::no files reference the spark image"
+            exit 1
+          fi
+
+          for f in "${FILES[@]}"; do
+            perl -pi -e 's#(ghcr\.io/cgoodfred/nhl-lakehouse/spark):[A-Za-z0-9_.-]+#$1:$ENV{SHA}#g' "$f"
+          done
+
+          # Sanity-check: every listed file should now contain the target image.
+          for f in "${FILES[@]}"; do
+            if ! grep -Fq "$IMAGE" "$f"; then
+              echo "::error::image substitution did not update $f"
+              exit 1
+            fi
+          done
+
+          if git diff --quiet -- "${FILES[@]}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open image bump PR
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: chore/pin-spark-image
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="${SHORT_SHA:0:7}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add spark/k8s workflows/templates
+          git commit -m "chore(spark): pin spark image to ${SHORT_SHA}"
+          git push --force-with-lease origin "$BRANCH"
+
+          BODY=$'Pins every SparkApplication manifest under `spark/k8s/**` and the WorkflowTemplate in `workflows/templates/silver-single-table.yaml` to the spark image built from '"${GITHUB_SHA}"$'.\n\nMerging updates the git source of truth. Operator still needs to `kubectl apply` the changed manifests (or re-submit Argo workflows) for the new image to take effect on the cluster.'
+
+          if gh pr view "$BRANCH" --json state --jq '.state == "OPEN"' 2>/dev/null | grep -q true; then
+            gh pr edit "$BRANCH" \
+              --title "chore(spark): pin spark image to ${SHORT_SHA}" \
+              --body "$BODY"
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore(spark): pin spark image to ${SHORT_SHA}" \
+              --body "$BODY"
+          fi
