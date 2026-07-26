@@ -79,7 +79,7 @@ spec:
             type: Python
             pythonVersion: "3"
             mode: cluster
-            image: ghcr.io/cgoodfred/nhl-lakehouse/spark:4efb14bad207f0630f162fa12e68f117b632f3c6
+            image: ghcr.io/cgoodfred/nhl-lakehouse/spark:552e0000f4285acaebe9a5ca9cc2b35947586c77
             imagePullPolicy: Always
             mainApplicationFile: "local:///opt/jobs/{{inputs.parameters.tier}}/{{inputs.parameters.file_stem}}.py"
             sparkVersion: "3.5.7"
