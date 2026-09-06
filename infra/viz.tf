@@ -26,7 +26,7 @@ resource "kubernetes_deployment" "viz" {
       spec {
         container {
           name              = "viz"
-          image             = "ghcr.io/cgoodfred/nhl-lakehouse/viz:4efb14bad207f0630f162fa12e68f117b632f3c6"
+          image             = "ghcr.io/cgoodfred/nhl-lakehouse/viz:552e0000f4285acaebe9a5ca9cc2b35947586c77"
           image_pull_policy = "Always"
           port {
             container_port = 8501
