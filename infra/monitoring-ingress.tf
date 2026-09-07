@@ -21,10 +21,18 @@ resource "kubernetes_manifest" "monitoring_grafana_ingressroute" {
         kind  = "Rule"
         services = [{
           name = var.monitoring_grafana_cutover ? "monitoring-grafana" : "grafana"
-          port = 3000
+          port = var.monitoring_grafana_cutover ? 80 : 3000
         }]
       }]
     }
+  }
+
+  # This adopted route was originally managed with kubectl client-side apply.
+  # OpenTofu is now authoritative for its backend and must claim those fields
+  # during the one-time cutover without replacing the IngressRoute.
+  field_manager {
+    name            = "opentofu"
+    force_conflicts = true
   }
 
   depends_on = [helm_release.monitoring_grafana]
