@@ -15,6 +15,18 @@ resource "helm_release" "monitoring_loki" {
       fullnameOverride = "monitoring-loki"
       deploymentMode   = "Monolithic"
 
+      # The chart enables a rules sidecar by default and otherwise grants it
+      # cluster-wide ConfigMap and Secret reads. Rules live in Mimir here, so
+      # disable the unused sidecar and keep any chart RBAC namespace-scoped.
+      rbac = {
+        namespaced = true
+      }
+      sidecar = {
+        rules = {
+          enabled = false
+        }
+      }
+
       loki = {
         auth_enabled = false
         commonConfig = {
