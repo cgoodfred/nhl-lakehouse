@@ -163,6 +163,30 @@ Applications can send OTLP to
 (HTTP). The scheduled-ingestion implementation should attach its run/season/job
 attributes there and expose outcome, duration, record-count, and lag metrics.
 
+### Monitoring RBAC bootstrap
+
+The first monitoring apply needs to create the runner's permanent access while
+the runner does not yet have permission to read the adopted `monitoring`
+namespace. Immediately before merging the RBAC change, create a temporary
+bootstrap binding from an operator-admin context:
+
+```bash
+kubectl create clusterrolebinding github-runner-monitoring-bootstrap \
+  --clusterrole=cluster-admin \
+  --serviceaccount=ci:github-runner
+```
+
+After the merge deploy succeeds, remove the temporary binding and rerun that
+successful workflow to prove the permanent scoped RBAC is sufficient:
+
+```bash
+kubectl delete clusterrolebinding github-runner-monitoring-bootstrap
+```
+
+Do not leave the bootstrap binding installed. The permanent runner role can
+administer the managed namespaces and read the non-Secret cluster objects used
+by the collectors, but it cannot write workloads cluster-wide.
+
 ## State
 
 State persists as a Kubernetes Secret named `tfstate-default-lakehouse-state` in the `lakehouse` namespace. Both local applies and the in-cluster runner read and write through the same backend.

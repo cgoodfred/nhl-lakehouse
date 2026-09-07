@@ -14,6 +14,10 @@ resource "helm_release" "monitoring_kube_state_metrics" {
     yamlencode({
       fullnameOverride = "monitoring-kube-state-metrics"
       replicas         = 1
+      # Secret metadata is not used by our dashboards or alerts. Excluding this
+      # collector avoids cluster-wide Secret read access for both KSM and the
+      # deploy runner that must be allowed to create KSM's ClusterRole.
+      collectorsExclude = ["secrets"]
       resources = {
         requests = {
           cpu    = "25m"
