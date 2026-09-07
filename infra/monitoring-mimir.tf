@@ -29,6 +29,10 @@ resource "kubernetes_config_map" "monitoring_mimir_rules" {
 }
 
 resource "kubernetes_persistent_volume_claim" "monitoring_mimir" {
+  # local-path uses WaitForFirstConsumer. Waiting here deadlocks because the
+  # Mimir Deployment is the consumer and depends on this PVC resource.
+  wait_until_bound = false
+
   metadata {
     name      = "monitoring-mimir-data"
     namespace = local.monitoring_namespace
