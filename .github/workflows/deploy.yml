@@ -29,6 +29,8 @@ jobs:
       TF_VAR_s3_secret_key:                  ${{ secrets.S3_SECRET_KEY }}
       TF_VAR_github_pat:                     ${{ secrets.RUNNER_GITHUB_PAT }}
       TF_VAR_lakekeeper_spark_client_secret: ${{ secrets.LAKEKEEPER_SPARK_CLIENT_SECRET }}
+      TF_VAR_grafana_oidc_client_secret:      ${{ secrets.GRAFANA_OIDC_CLIENT_SECRET }}
+      TF_VAR_alertmanager_slack_webhook_url:  ${{ secrets.ALERTMANAGER_SLACK_WEBHOOK_URL }}
 
       # Non-sensitive but environment-specific.
       TF_VAR_keycloak_issuer_url: ${{ vars.KEYCLOAK_ISSUER_URL }}

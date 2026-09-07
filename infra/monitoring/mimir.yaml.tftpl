@@ -1,0 +1,65 @@
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  log_level: info
+
+blocks_storage:
+  backend: s3
+  s3:
+    endpoint: ${s3_endpoint}
+    bucket_name: monitoring-mimir
+    access_key_id: $${S3_ACCESS_KEY}
+    secret_access_key: $${S3_SECRET_KEY}
+    insecure: true
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+    index_cache:
+      backend: inmemory
+      inmemory:
+        max_size_bytes: 134217728
+  tsdb:
+    dir: /data/tsdb
+
+compactor:
+  data_dir: /data/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+distributor:
+  ring:
+    kvstore:
+      store: inmemory
+
+ingester:
+  ring:
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+
+ruler:
+  rule_path: /data/ruler
+  alertmanager_url: http://monitoring-alertmanager:9093
+  enable_api: true
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /etc/mimir/rules
+
+limits:
+  compactor_blocks_retention_period: 720h
+  max_global_series_per_user: 100000
+  ingestion_rate: 25000
+  ingestion_burst_size: 50000
+
+activity_tracker:
+  filepath: /data/activity.log
+
+usage_stats:
+  enabled: false
