@@ -88,6 +88,6 @@ variable "alertmanager_slack_webhook_url" {
 variable "monitoring_grafana_cutover" {
   type        = bool
   description = "Route grafana.cluster.cgood.dev to the managed Grafana after the parallel-stack soak"
-  default     = false
+  default     = true
   sensitive   = false
 }
