@@ -95,6 +95,11 @@ resource "helm_release" "argo_workflows" {
         clusterWorkflowTemplates = {
           enabled = false
         }
+        podAnnotations = {
+          "prometheus.io/scrape" = "true"
+          "prometheus.io/port"   = "9090"
+          "prometheus.io/path"   = "/metrics"
+        }
         # Persist completed Workflows to Postgres so /workflows shows history
         # past the in-memory retention window.
         persistence = {

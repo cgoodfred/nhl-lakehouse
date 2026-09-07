@@ -66,10 +66,13 @@ Silver → gold has one silver-from-silver dependency: `silver.teams` is derived
 
 ## Storage layout
 
-**SeaweedFS S3 buckets** (both provisioned in `infra/seaweedfs.tf`):
+**SeaweedFS S3 buckets** (provisioned in `infra/seaweedfs.tf`):
 
 - `nhl-bronze` — raw JSON, ingest sink. Path-partitioned by date/season/game.
 - `nhl-warehouse` — Iceberg data + metadata files under `nhl.silver.*` and `nhl.gold.*` prefixes.
+- `monitoring-mimir` — metrics blocks (30-day retention).
+- `monitoring-loki` — log chunks and index data (14-day retention).
+- `monitoring-tempo` — trace blocks (7-day retention).
 
 SeaweedFS itself: master (`pi-master`, 5Gi), filer (`pi-node-one`, 20Gi), volume server (`pi-node-two`, 100Gi). Node selectors are hardcoded by hostname — see AGENTS.md landmines.
 
@@ -99,18 +102,45 @@ Single Keycloak realm (`Lakehouse`) hosted at `keycloak.cluster.cgood.dev`. One 
 
 Client credentials live in the K8s Secret `lakekeeper-client-secret` (managed by Terraform).
 
-No per-user auth anywhere; the viz is public behind Cloudflare Tunnel.
+The viz remains public behind Cloudflare Tunnel. Grafana uses the existing
+Keycloak generic-OAuth client with PKCE; machine-to-machine Lakekeeper access
+continues to use the separate client-credentials flow above.
+
+## Observability
+
+An OpenTelemetry Collector DaemonSet collects container logs plus host and
+kubelet telemetry on every node. A single Collector gateway receives OTLP,
+collects Kubernetes events and cluster metrics, and scrapes annotated workloads,
+CoreDNS, SeaweedFS, and Lakekeeper. It routes metrics to Mimir, logs to Loki,
+and traces to Tempo. Grafana provisions all three data sources plus the external
+Alertmanager, and Keycloak protects the public UI.
+
+The backends are intentionally single-replica/monolithic for this three-node
+personal cluster. SeaweedFS holds durable telemetry blocks; small local-path
+PVCs hold WAL, cache, and UI state. Kube-state-metrics, node exporter, and one
+exporter for each platform Postgres database cover the infrastructure signals
+that are not emitted as OTLP.
+
+During migration the managed resources use the `monitoring-*` prefix and run
+beside the legacy Prometheus/Grafana stack. The adopted Grafana IngressRoute
+continues targeting the legacy service until `monitoring_grafana_cutover` is
+explicitly enabled after a 48-hour soak. See `infra/README.md` for validation
+and retirement steps.
 
 ## Kubernetes topology
 
-Two namespaces:
+Three namespaces:
 
 - **`lakehouse`** — data platform. SeaweedFS, Lakekeeper (+Postgres), Argo Workflows (+Postgres), Spark Operator + SparkApplication CRs, viz Deployment + Traefik IngressRoute, ingest backfill Jobs.
 - **`ci`** — self-hosted GitHub runner. Broad RBAC into `lakehouse` so it can `tofu apply` there.
+- **`monitoring`** — LGTM backends, OpenTelemetry collectors, Grafana, Alertmanager, and infrastructure exporters.
 
 Resource quota on `lakehouse`: 10 CPU / 32Gi memory / 10 PVCs / 400Gi storage. This is the constraint that forces `parallelism: 1` on `silver-full-rebuild`.
 
-Ingress: viz is the only exposed service, via Traefik IngressRoute on `nhl.cluster.cgood.dev` (plain HTTP internally; TLS terminates at the Cloudflare Tunnel edge). Argo UI + Lakekeeper are port-forward only.
+Ingress: viz is exposed at `nhl.cluster.cgood.dev` and Grafana at
+`grafana.cluster.cgood.dev`, both via Traefik IngressRoutes (plain HTTP
+internally; TLS terminates at the Cloudflare Tunnel edge). Argo UI + Lakekeeper
+are port-forward only.
 
 ## Deploy topology
 
@@ -140,5 +170,6 @@ Short version of "why this stack for a one-person Pi cluster":
 - **Argo Workflows over Airflow / Prefect** — no additional Python runtime to maintain, CRD-native, low idle footprint.
 - **Streamlit + PyIceberg + DuckDB** — no separate query engine needed; DuckDB handles the joins in-memory in the same pod as the UI. Fast enough for the goal-map scale (~10⁴ goals/season).
 - **OpenTofu with K8s Secret backend** — no external state store, no cloud dependency; self-hosted runner shares state cleanly.
+- **LGTM + OpenTelemetry over Prometheus-only monitoring** — one telemetry path for metrics, logs, and traces, with monolithic backends sized for the Pi cluster rather than a production-scale distributed deployment.
 
 The whole stack is chosen so it fits inside 10 CPU / 32Gi across 3 Raspberry Pi 5s with room for future features.

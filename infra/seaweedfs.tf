@@ -50,6 +50,9 @@ resource "helm_release" "seaweedfs" {
         createBuckets = [
           { name = "nhl-bronze" },
           { name = "nhl-warehouse" },
+          { name = "monitoring-mimir" },
+          { name = "monitoring-loki" },
+          { name = "monitoring-tempo" },
         ]
       }
     })
