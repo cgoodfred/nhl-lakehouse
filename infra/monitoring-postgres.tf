@@ -71,15 +71,14 @@ resource "kubernetes_deployment" "monitoring_lakekeeper_postgres_exporter" {
           }
           readiness_probe {
             http_get {
-              path = "/-/ready"
+              path = "/metrics"
               port = "metrics"
             }
             initial_delay_seconds = 5
             period_seconds        = 10
           }
           liveness_probe {
-            http_get {
-              path = "/-/healthy"
+            tcp_socket {
               port = "metrics"
             }
             initial_delay_seconds = 15
@@ -140,15 +139,14 @@ resource "kubernetes_deployment" "monitoring_argo_postgres_exporter" {
           }
           readiness_probe {
             http_get {
-              path = "/-/ready"
+              path = "/metrics"
               port = "metrics"
             }
             initial_delay_seconds = 5
             period_seconds        = 10
           }
           liveness_probe {
-            http_get {
-              path = "/-/healthy"
+            tcp_socket {
               port = "metrics"
             }
             initial_delay_seconds = 15

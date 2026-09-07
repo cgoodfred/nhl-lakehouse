@@ -107,6 +107,11 @@ resource "helm_release" "monitoring_loki" {
       lokiCanary = {
         enabled = false
       }
+      test = {
+        # The chart test queries the canary and fails template validation when
+        # the canary is disabled, so these settings must move together.
+        enabled = false
+      }
       resultsCache = {
         enabled = false
       }
