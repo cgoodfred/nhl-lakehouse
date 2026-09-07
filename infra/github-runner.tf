@@ -16,7 +16,7 @@ resource "kubernetes_service_account" "github_runner" {
 }
 
 # Admin RBAC + the default auto-mounted SA token means any workflow running on
-# this runner can read every Secret in ci and lakehouse, including its own
+# this runner can read every Secret in ci, lakehouse, and monitoring, including its own
 # PAT. Accepted because only trusted workflows target the pi-cluster label
 # (branch protection on main + fork-PR approval setting on the repo).
 resource "kubernetes_role_binding" "github_runner_lakehouse" {
@@ -40,6 +40,26 @@ resource "kubernetes_role_binding" "github_runner_ci" {
   metadata {
     name      = "github-runner-ci-admin"
     namespace = kubernetes_namespace.ci.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = "admin"
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
+# The monitoring namespace is managed by this OpenTofu root, so the deploy
+# runner needs the same namespaced administration it already has in lakehouse.
+# Cluster-scoped collector access is granted separately below and is read-only.
+resource "kubernetes_role_binding" "github_runner_monitoring" {
+  metadata {
+    name      = "github-runner-monitoring-admin"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
   }
   role_ref {
     api_group = "rbac.authorization.k8s.io"
@@ -112,6 +132,138 @@ resource "kubernetes_cluster_role_binding" "github_runner_crd_reader" {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
     name      = kubernetes_cluster_role.github_runner_crd_reader.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
+# The monitoring namespace itself and the collector Helm releases contain
+# cluster-scoped resources. The runner needs namespace adoption/update access
+# plus every read-only permission that the OpenTelemetry and kube-state-metrics
+# charts delegate to their service accounts. Keeping the union here lets Helm
+# pass Kubernetes' RBAC privilege-escalation checks without granting the runner
+# cluster-admin, Secret reads outside its managed namespaces, or workload writes.
+resource "kubernetes_cluster_role" "github_runner_monitoring_cluster_scope" {
+  metadata {
+    name = "github-runner-monitoring-cluster-scope"
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["namespaces"]
+    verbs      = ["create"]
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["namespaces"]
+    resource_names = [kubernetes_namespace.monitoring.metadata[0].name]
+    verbs          = ["update", "patch"]
+  }
+
+  rule {
+    api_groups = [""]
+    resources = [
+      "configmaps",
+      "endpoints",
+      "events",
+      "limitranges",
+      "namespaces",
+      "namespaces/status",
+      "nodes",
+      "nodes/proxy",
+      "nodes/spec",
+      "nodes/stats",
+      "persistentvolumeclaims",
+      "persistentvolumes",
+      "pods",
+      "pods/status",
+      "replicationcontrollers",
+      "replicationcontrollers/status",
+      "resourcequotas",
+      "services",
+    ]
+    verbs = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["apps"]
+    resources  = ["daemonsets", "deployments", "replicasets", "statefulsets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["extensions"]
+    resources  = ["daemonsets", "deployments", "replicasets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["batch"]
+    resources  = ["cronjobs", "jobs"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["autoscaling"]
+    resources  = ["horizontalpodautoscalers"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["certificates.k8s.io"]
+    resources  = ["certificatesigningrequests"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["discovery.k8s.io"]
+    resources  = ["endpointslices"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["coordination.k8s.io"]
+    resources  = ["leases"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["networking.k8s.io"]
+    resources  = ["ingresses", "networkpolicies"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["policy"]
+    resources  = ["poddisruptionbudgets"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["storage.k8s.io"]
+    resources  = ["storageclasses", "volumeattachments"]
+    verbs      = ["get", "list", "watch"]
+  }
+
+  rule {
+    api_groups = ["admissionregistration.k8s.io"]
+    resources  = ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs      = ["get", "list", "watch"]
+  }
+}
+
+resource "kubernetes_cluster_role_binding" "github_runner_monitoring_cluster_scope" {
+  metadata {
+    name = "github-runner-monitoring-cluster-scope"
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role.github_runner_monitoring_cluster_scope.metadata[0].name
   }
   subject {
     kind      = "ServiceAccount"
@@ -194,6 +346,77 @@ resource "kubernetes_role_binding" "github_runner_lakehouse_quota_patch" {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
     name      = kubernetes_role.github_runner_lakehouse_quota_patch.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
+# `admin` intentionally excludes quota and limit-range management. Mirror the
+# lakehouse exception in monitoring so OpenTofu can enforce its resource budget.
+resource "kubernetes_role" "github_runner_monitoring_quota_patch" {
+  metadata {
+    name      = "github-runner-quota-patch"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["resourcequotas", "limitranges"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "github_runner_monitoring_quota_patch" {
+  metadata {
+    name      = "github-runner-quota-patch"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.github_runner_monitoring_quota_patch.metadata[0].name
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.github_runner.metadata[0].name
+    namespace = kubernetes_service_account.github_runner.metadata[0].namespace
+  }
+}
+
+# The built-in admin role does not aggregate arbitrary Traefik CRDs.
+resource "kubernetes_role" "github_runner_monitoring_traefik" {
+  metadata {
+    name      = "github-runner-traefik"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+  rule {
+    api_groups = ["traefik.io"]
+    resources = [
+      "ingressroutes",
+      "ingressroutetcps",
+      "ingressrouteudps",
+      "middlewares",
+      "middlewaretcps",
+      "serverstransports",
+      "tlsoptions",
+      "tlsstores",
+      "traefikservices",
+    ]
+    verbs = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "github_runner_monitoring_traefik" {
+  metadata {
+    name      = "github-runner-traefik"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.github_runner_monitoring_traefik.metadata[0].name
   }
   subject {
     kind      = "ServiceAccount"
