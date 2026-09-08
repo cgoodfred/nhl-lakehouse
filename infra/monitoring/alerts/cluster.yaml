@@ -84,3 +84,39 @@ groups:
         annotations:
           summary: OpenTelemetry trace export is failing
           description: Exporter {{ $labels.exporter }} has dropped or failed spans during the last 15 minutes.
+
+      - alert: MimirDiscardingSamples
+        expr: sum by (reason) (increase(cortex_discarded_samples_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Mimir is discarding metric samples
+          description: Mimir discarded samples for {{ $labels.reason }} during the last 15 minutes.
+
+      - alert: MimirSeriesCardinalityHigh
+        expr: cortex_ingester_active_series > 25000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Mimir active series are above the operating budget
+          description: Active series have exceeded 50% of the enforced 50,000-series limit.
+
+      - alert: MimirIngestionRateHigh
+        expr: cortex_distributor_ingestion_rate_samples_per_second > 2500
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Mimir ingestion rate is above the operating budget
+          description: Metric ingestion has exceeded 50% of the enforced 5,000 samples/second limit.
+
+      - alert: LokiStreamCardinalityHigh
+        expr: loki_ingester_memory_streams > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Loki active stream cardinality is unexpectedly high
+          description: Loki has more than 1,000 active streams; inspect newly introduced indexed labels.

@@ -53,13 +53,53 @@
       "targets": [{ "editorMode": "code", "expr": "{k8s_namespace_name=~\"$namespace\"}", "queryType": "range", "refId": "A" }],
       "title": "Recent Kubernetes logs",
       "type": "logs"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 25000 }, { "color": "red", "value": 40000 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(cortex_ingester_active_series)", "legendFormat": "Active series", "range": true, "refId": "A" }],
+      "title": "Mimir active series",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2500 }, { "color": "red", "value": 4000 }] }, "unit": "pps" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 16 },
+      "id": 7,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(cortex_distributor_ingestion_rate_samples_per_second)", "legendFormat": "Samples/sec", "range": true, "refId": "A" }],
+      "title": "Mimir ingestion rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 16 },
+      "id": 8,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(cortex_discarded_samples_total[15m]))", "legendFormat": "Discarded", "range": true, "refId": "A" }],
+      "title": "Metric samples discarded (15m)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 5000 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
+      "id": 9,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(loki_ingester_memory_streams)", "legendFormat": "Active streams", "range": true, "refId": "A" }],
+      "title": "Loki active streams",
+      "type": "stat"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 41,
   "tags": ["nhl-lakehouse", "kubernetes"],
   "templating": {
-    "list": [{ "allValue": ".*", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "loki", "uid": "loki" }, "definition": "label_values(k8s_namespace_name)", "includeAll": true, "label": "Namespace", "name": "namespace", "options": [], "query": "label_values(k8s_namespace_name)", "refresh": 1, "regex": "", "sort": 1, "type": "query" }]
+    "list": [{ "allValue": ".+", "current": { "text": "All", "value": "$__all" }, "datasource": { "type": "loki", "uid": "loki" }, "definition": "label_values(k8s_namespace_name)", "includeAll": true, "label": "Namespace", "name": "namespace", "options": [], "query": "label_values(k8s_namespace_name)", "refresh": 1, "regex": "", "sort": 1, "type": "query" }]
   },
   "time": { "from": "now-6h", "to": "now" },
   "timezone": "browser",
