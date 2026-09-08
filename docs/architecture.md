@@ -108,12 +108,14 @@ continues to use the separate client-credentials flow above.
 
 ## Observability
 
-An OpenTelemetry Collector DaemonSet collects container logs plus host and
-kubelet telemetry on every node. A single Collector gateway receives OTLP,
-collects Kubernetes events and cluster metrics, and scrapes annotated workloads,
-CoreDNS, SeaweedFS, and Lakekeeper. It routes metrics to Mimir, logs to Loki,
-and traces to Tempo. Grafana provisions all three data sources plus the external
-Alertmanager, and Keycloak protects the public UI.
+An OpenTelemetry Collector DaemonSet collects container logs plus selected
+kubelet pod-resource telemetry on every node. A single Collector gateway
+receives OTLP, collects Kubernetes events, and scrapes annotated workloads,
+CoreDNS, SeaweedFS, and Lakekeeper. Node exporter is the sole host-metric source
+and kube-state-metrics is the sole Kubernetes object-state source. The gateway
+applies an explicit operational metric allowlist before routing metrics to
+Mimir; logs go to Loki and traces to Tempo. Grafana provisions all three data
+sources plus the external Alertmanager, and Keycloak protects the public UI.
 
 The backends are intentionally single-replica/monolithic for this three-node
 personal cluster. SeaweedFS holds durable telemetry blocks; small local-path

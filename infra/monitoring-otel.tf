@@ -1,4 +1,57 @@
 locals {
+  # Metrics are opt-in. Each pattern supports a dashboard, alert, or a concrete
+  # troubleshooting question for this cluster. Keep histogram count/sum series
+  # where averages are useful, but omit bucket series unless a percentile is
+  # explicitly needed.
+  monitoring_metric_allowlist = [
+    # Scrape health and Kubernetes workload state.
+    "up",
+    "kube_node_status_(condition|capacity|allocatable)",
+    "kube_pod_status_(phase|ready)",
+    "kube_pod_container_status_(waiting_reason|restarts_total)",
+    "kube_deployment_(spec_replicas|status_replicas_available)",
+    "kube_statefulset_(replicas|status_replicas_ready)",
+    "kube_daemonset_status_(desired_number_scheduled|number_ready)",
+    "kube_job_(created|status_(active|failed|succeeded|completion_time))",
+    "kube_cronjob_(status_(active|last_schedule_time)|next_schedule_time|spec_suspend)",
+    "kube_persistentvolumeclaim_(status_phase|resource_requests_storage_bytes)",
+    "kube_resourcequota",
+
+    # Node capacity plus aggregate pod CPU, memory, and ephemeral disk use.
+    "node_cpu_seconds_total",
+    "node_memory_(MemAvailable|MemTotal|SwapFree|SwapTotal)_bytes",
+    "node_filesystem_(avail_bytes|size_bytes|readonly)",
+    "node_load(1|5)",
+    "node_boot_time_seconds",
+    "node_network_(receive|transmit)_(bytes|errs|drop)_total",
+    "k8s[.]pod[.](cpu[.](time|usage)|memory[.]working_set|filesystem[.]usage)",
+
+    # Scheduled ingestion and the services it depends on.
+    "argo_workflows_(cronworkflows_triggered_total|error_count|gauge|is_leader|operation_duration_seconds_(count|sum)|queue_depth_gauge|total_count|workers_busy_count|workflow_condition|workflowtemplate_(runtime|triggered_total))",
+    "SeaweedFS_(master_(is_leader|leader_changes_total|pick_for_write_error_total|volume_layout_(crowded|writable))|volumeServer_(disk_error_status|file_(read|write)_failures_total|master_disconnections_total|read_only_volumes|total_disk_size|volumes)|s3_bucket_(object_count|physical_size_bytes|size_bytes)|s3_request_(seconds_(count|sum)|total)|filer_request_(seconds_(count|sum)|total))",
+    "pg_(up|exporter_last_scrape_(duration_seconds|error)|database_size_bytes|locks_count|replication_(is_replica|lag_seconds|last_replay_seconds)|stat_database_(numbackends|xact_commit|xact_rollback|blks_read|blks_hit|deadlocks|temp_bytes))",
+    "axum_http_requests_(duration_seconds_(count|sum)|pending|total)",
+    "lakekeeper_cache_(hits_total|misses_total|size)",
+    "coredns_dns_(panics_total|request_duration_seconds_(count|sum)|requests_total|responses_total)",
+
+    # Delivery health, cardinality, and storage-backend health.
+    "otelcol_exporter_(queue_(capacity|size)|send_failed_(log_records|metric_points|spans)_total|sent_(log_records|metric_points|spans)_total)",
+    "otelcol_receiver_(accepted|failed|refused)_(log_records|metric_points|spans)_total",
+    "otelcol_process_(cpu_seconds_total|memory_rss)",
+    "cortex_discarded_samples_total",
+    "cortex_distributor_ingestion_rate_samples_per_second",
+    "cortex_ingester_(active_series|ingested_samples_failures_total|ingestion_rate_samples_per_second|memory_series|oldest_unshipped_block_timestamp_seconds|shipper_upload_failures_total)",
+    "cortex_compactor_(disk_out_of_space_errors_total|group_compactions_failures_total|last_successful_run_timestamp_seconds)",
+    "loki_distributor_(bytes|lines)_received_total",
+    "loki_ingester_(chunk_stored_bytes_total|chunks_flush_failures_total|chunks_stored_total|memory_streams|wal_disk_full_failures_total|wal_disk_usage_percent)",
+    "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
+    "tempo_distributor_(bytes_received_total|spans_received_total)",
+    "tempo_ingester_(blocks_flushed_total|failed_flushes_total|flush_queue_length)",
+    "alertmanager_notifications_(failed_total|total)",
+  ]
+
+  monitoring_metric_allowlist_regex = "^(${join("|", local.monitoring_metric_allowlist)})$"
+
   otel_disabled_ports = {
     "jaeger-compact" = { enabled = false }
     "jaeger-thrift"  = { enabled = false }
@@ -94,7 +147,17 @@ locals {
       prometheusremotewrite = {
         endpoint = "http://monitoring-mimir:9009/api/v1/push"
         resource_to_telemetry_conversion = {
-          enabled = true
+          enabled = false
+        }
+        target_info = {
+          enabled = false
+        }
+        disable_scope_info            = true
+        max_batch_request_parallelism = 1
+        remote_write_queue = {
+          enabled       = true
+          num_consumers = 1
+          queue_size    = 10000
         }
         retry_on_failure = {
           enabled = true
@@ -139,6 +202,24 @@ locals {
           key    = "k8s.cluster.name"
           value  = "pi-cluster"
           action = "upsert"
+        }]
+      }
+      "filter/metric_allowlist" = {
+        error_mode = "propagate"
+        metric_conditions = [
+          format("not IsMatch(metric.name, %q)", local.monitoring_metric_allowlist_regex),
+        ]
+      }
+      "transform/metric_labels" = {
+        error_mode = "propagate"
+        metric_statements = [{
+          context = "datapoint"
+          statements = [
+            "set(datapoint.attributes[\"k8s_cluster_name\"], resource.attributes[\"k8s.cluster.name\"]) where IsMatch(metric.name, \"^k8s[.]pod[.]\") and resource.attributes[\"k8s.cluster.name\"] != nil",
+            "set(datapoint.attributes[\"k8s_namespace_name\"], resource.attributes[\"k8s.namespace.name\"]) where IsMatch(metric.name, \"^k8s[.]pod[.]\") and resource.attributes[\"k8s.namespace.name\"] != nil",
+            "set(datapoint.attributes[\"k8s_node_name\"], resource.attributes[\"k8s.node.name\"]) where IsMatch(metric.name, \"^k8s[.]pod[.]\") and resource.attributes[\"k8s.node.name\"] != nil",
+            "set(datapoint.attributes[\"k8s_pod_name\"], resource.attributes[\"k8s.pod.name\"]) where IsMatch(metric.name, \"^k8s[.]pod[.]\") and resource.attributes[\"k8s.pod.name\"] != nil",
+          ]
         }]
       }
     }
@@ -270,7 +351,7 @@ locals {
         }
         metrics = {
           receivers  = ["otlp", "prometheus"]
-          processors = ["memory_limiter", "resource", "batch"]
+          processors = ["memory_limiter", "resource", "filter/metric_allowlist", "transform/metric_labels", "batch"]
           exporters  = ["prometheusremotewrite"]
         }
         traces = {
@@ -312,7 +393,9 @@ resource "helm_release" "monitoring_otel_agent" {
           includeCollectorLogs = false
           storeCheckpoints     = false
         }
-        hostMetrics          = { enabled = true }
+        # node-exporter is the single source for host metrics; collecting them
+        # again in the agent produces duplicate series without adding insight.
+        hostMetrics          = { enabled = false }
         kubeletMetrics       = { enabled = true }
         kubernetesAttributes = { enabled = true }
         resourceDetection    = { enabled = true }
@@ -366,7 +449,8 @@ resource "helm_release" "monitoring_otel_gateway" {
         name = "otelcol-contrib"
       }
       presets = {
-        clusterMetrics       = { enabled = true }
+        # kube-state-metrics is the single source for Kubernetes object state.
+        clusterMetrics       = { enabled = false }
         kubernetesAttributes = { enabled = true }
         kubernetesEvents     = { enabled = true, useK8sEventsReceiver = true }
         resourceDetection    = { enabled = true }

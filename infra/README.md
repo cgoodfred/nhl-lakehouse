@@ -129,6 +129,23 @@ Mimir, Loki, and Tempo use the `monitoring-mimir`, `monitoring-loki`, and
 state. The namespace and public `grafana` IngressRoute are imported into
 OpenTofu rather than recreated.
 
+Metrics are deliberately allowlisted in `monitoring-otel.tf`. The retained
+families answer one of these questions: are Kubernetes workloads healthy, are
+nodes or lakehouse jobs resource constrained, are Argo and the data services
+working, or is the telemetry pipeline itself approaching a limit? Histogram
+buckets, build metadata, object `*_info` families, and other broad exporter
+output are dropped by default. Node exporter is the sole host-metric source and
+kube-state-metrics is the sole Kubernetes object-state source.
+
+When adding a metric, add its exact family or a narrowly bounded pattern to
+`monitoring_metric_allowlist` and add the dashboard panel or alert that consumes
+it in the same change. Do not enable wholesale resource-to-label conversion.
+Only stable pod identity fields are copied onto the selected kubelet metrics;
+UIDs, start timestamps, image IDs, and similar rollout-scoped attributes remain
+off metric labels. Mimir enforces 50,000 active series, 5,000 samples/second,
+and 30 labels per series, with warnings at half of the series and ingestion
+budgets.
+
 The first apply intentionally leaves `grafana.cluster.cgood.dev` pointing at
 the legacy `grafana` Service. Inspect the replacement locally during its soak:
 
@@ -147,7 +164,8 @@ curl -fsS http://localhost:9009/ready
 ```
 
 In Grafana, confirm Keycloak login, all four provisioned data sources, recent
-logs, node metrics, and the `Pi Cluster Overview` dashboard. Allow a minimum
+logs, node metrics, cardinality guardrails, and the `Pi Cluster Overview`
+dashboard. Allow a minimum
 48-hour parallel soak. Then change `monitoring_grafana_cutover` to `true` in a
 small PR; this changes only the adopted route backend to `monitoring-grafana`.
 
