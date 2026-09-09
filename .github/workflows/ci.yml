@@ -45,6 +45,17 @@ jobs:
       - name: tofu validate
         run: tofu validate
 
+      - name: monitoring config and dashboards
+        run: python3 scripts/validate_monitoring.py
+
+      - name: monitoring alert rules
+        run: |
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            --volume "$PWD/monitoring/alerts:/rules:ro" \
+            prom/prometheus:v3.5.0 \
+            check rules /rules/cluster.yaml
+
   argo:
     name: Argo Workflows (lint)
     runs-on: ubuntu-latest
