@@ -4,7 +4,12 @@ OpenTofu configuration for the nhl-lakehouse Pi cluster.
 
 ## Day-to-day
 
-Infrastructure changes go through pull requests. CI runs `tofu fmt -check` and `tofu validate` on each PR. Merging to `main` triggers the `Deploy` workflow (`.github/workflows/deploy.yml`), which runs `tofu apply` on a self-hosted runner inside the cluster.
+Infrastructure changes go through pull requests. CI runs `tofu fmt -check`,
+`tofu validate`, offline monitoring regression checks, and `promtool` rule
+validation on each PR. These checks run on GitHub's hosted runner without
+cluster credentials or access to the shared state. Merging to `main` triggers
+the `Deploy` workflow (`.github/workflows/deploy.yml`), which runs `tofu apply`
+on a self-hosted runner inside the cluster.
 
 Local commands should stop at planning because the local shell and the deploy
 workflow share the same Kubernetes state backend:
