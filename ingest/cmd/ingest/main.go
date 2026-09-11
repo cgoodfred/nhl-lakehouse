@@ -233,7 +233,7 @@ func main() {
 
 func knownGameState(state string) bool {
 	switch state {
-	case nhl.GameStateFuture, nhl.GameStatePreview, nhl.GameStateLive, nhl.GameStateCritical, nhl.GameStateFinal, nhl.GameStateOfficial:
+	case nhl.GameStateFuture, nhl.GameStatePreview, nhl.GameStateLive, nhl.GameStateCritical, nhl.GameStateFinal, nhl.GameStateOff, nhl.GameStateOver:
 		return true
 	default:
 		return false

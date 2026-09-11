@@ -176,12 +176,13 @@ const (
 	GameStateLive     = "LIVE"
 	GameStateCritical = "CRIT"
 	GameStateFinal    = "FINAL"
-	GameStateOfficial = "OFFICIAL"
+	GameStateOff      = "OFF"
+	GameStateOver     = "OVER"
 )
 
 func (g Game) PBPEligible() bool {
 	switch g.GameState {
-	case GameStateLive, GameStateCritical, GameStateFinal, GameStateOfficial:
+	case GameStateLive, GameStateCritical, GameStateFinal, GameStateOff, GameStateOver:
 		return true
 	default:
 		return false
@@ -192,7 +193,7 @@ func (g Game) ShiftEligible() bool {
 	if g.GameType != 2 && g.GameType != 3 {
 		return false
 	}
-	return g.GameState == GameStateFinal || g.GameState == GameStateOfficial
+	return g.GameState == GameStateFinal || g.GameState == GameStateOff || g.GameState == GameStateOver
 }
 
 func ParseGames(scheduleBody []byte) ([]Game, error) {

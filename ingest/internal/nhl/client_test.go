@@ -84,7 +84,8 @@ func TestGameEligibility(t *testing.T) {
 		{state: "LIVE", gameType: 2, wantPBP: true},
 		{state: "CRIT", gameType: 2, wantPBP: true},
 		{state: "FINAL", gameType: 2, wantPBP: true, wantShifts: true},
-		{state: "OFFICIAL", gameType: 3, wantPBP: true, wantShifts: true},
+		{state: "OFF", gameType: 3, wantPBP: true, wantShifts: true},
+		{state: "OVER", gameType: 2, wantPBP: true, wantShifts: true},
 		{state: "FINAL", gameType: 1, wantPBP: true},
 		{state: "UNKNOWN", gameType: 2},
 	}
