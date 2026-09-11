@@ -24,7 +24,7 @@ func main() {
 	startFlag := flag.String("start", "", "start date (YYYY-MM-DD, inclusive)")
 	endFlag := flag.String("end", "", "end date (YYYY-MM-DD, inclusive)")
 	rollingFlag := flag.Bool("rolling", false, "use a rolling local-calendar date window")
-	lookbackFlag := flag.Int("lookback-days", 7, "rolling window days before today (inclusive)")
+	lookbackFlag := flag.Int("lookback-days", 2, "rolling window days before today (inclusive)")
 	lookaheadFlag := flag.Int("lookahead-days", 1, "rolling window days after today (inclusive)")
 	timezoneFlag := flag.String("timezone", "America/New_York", "IANA timezone for rolling window")
 	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL (credentials read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars via the AWS SDK default chain)")
