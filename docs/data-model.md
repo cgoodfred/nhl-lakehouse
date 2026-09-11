@@ -12,6 +12,7 @@ No schema enforcement; consumers read as text and parse. Paths:
 |---|---|---|
 | `schedule/date=<YYYY-MM-DD>/schedule.json` | Daily schedule envelope (array of games) | `ingest` Go CLI |
 | `play-by-play/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` | Per-game envelope with `plays[]` and `rosterSpots[]` arrays | `ingest` Go CLI |
+| `shift-charts/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` | Raw NHL shift-chart response for a completed regular-season or playoff game | `ingest` Go CLI |
 | `tracking/season=<YYYYYYYY>/game_id=<id>/event_id=<id>/tracking.json` | Array of tracking frames (~10 Hz per goal) | `spark/jobs/bronze/tracking_ingest.py` |
 | `_runs/run=<runID>/failures.json` | Per-run ingest failure manifest | `ingest` Go CLI |
 
@@ -105,6 +106,18 @@ Columns:
 - `on_ice: array<struct<player_id: long, sweater: int, team_id: int, team_abbrev: string, x_in: double, y_in: double, x_ft: double, y_ft: double>>` — puck entry filtered out
 - `ingested_at (timestamp)`
 
+### `nhl.silver.shifts`
+
+- **Grain**: one row per `(game_id, player_id, period, shift_number)`
+- **Partitioning**: `season`
+- **Source**: `s3a://nhl-bronze/shift-charts/season=*/date=*/game_*.json` → `data[]` exploded
+- **Load**: full-table overwrite (`createOrReplace()`), partitioned by `season`
+- **Dedup**: deterministic lowest source `shift_id` wins for the logical key
+
+Columns:
+
+`season (int)`, `game_date (date)`, `shift_id (long)`, `game_id (long)`, `player_id (long)`, `team_id (long)`, `period (int)`, `shift_number (int)`, `start_time_seconds (int)`, `end_time_seconds (int)`, `duration_seconds (int)`, `event_number (long)`, `detail_code (long)`, `event_description (string)`, `event_details (string)`, `type_code (long)`, `ingested_at (timestamp)`.
+
 ### `nhl.silver.tracking_attempts`
 
 - **Grain**: one row per `(game_id, event_id)` — current-state audit table
@@ -182,7 +195,8 @@ bronze/play-by-play ─┬─► silver.games ────────► silver
                      └─► silver.game_rosters ──────┤
                                                    ▼
                                         gold.player_shots
-bronze/tracking ────► silver.tracking_frames ────► gold.goal_tracking_sequences
+bronze/shift-charts ──► silver.shifts
+bronze/tracking ──────► silver.tracking_frames ───► gold.goal_tracking_sequences
              ▲                       │                    │
              │                       └─────────┬──────────┘
      silver.tracking_attempts ────────────────►│

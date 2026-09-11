@@ -59,7 +59,7 @@ Two independent ingest paths, both landing raw JSON in the `nhl-bronze` bucket.
 
 All Spark jobs live in one container image (`ghcr.io/cgoodfred/nhl-lakehouse/spark`). Different `mainApplicationFile` per SparkApplication manifest selects which job runs.
 
-- **Silver** (7 tables) reads bronze JSON, produces normalized Iceberg tables. Includes 2 SCD-1 dimensions (players, teams), 4 fact/bridge tables (games, plays, game_rosters, tracking_frames), and 1 current-state audit table (tracking_attempts).
+- **Silver** (8 tables) reads bronze JSON, produces normalized Iceberg tables. Includes 2 SCD-1 dimensions (players, teams), 5 fact/bridge tables (games, plays, game_rosters, shifts, tracking_frames), and 1 current-state audit table (tracking_attempts).
 - **Gold** (3 tables) joins silver into denormalized serving shapes. `player_shots` for the map view; `goal_tracking_sequences` for animation playback; `goal_tracking_status` as a per-goal state machine the viz switches on.
 
 Silver → gold has one silver-from-silver dependency: `silver.teams` is derived from `silver.games`.
@@ -68,7 +68,7 @@ Silver → gold has one silver-from-silver dependency: `silver.teams` is derived
 
 **SeaweedFS S3 buckets** (provisioned in `infra/seaweedfs.tf`):
 
-- `nhl-bronze` — raw JSON, ingest sink. Path-partitioned by date/season/game.
+- `nhl-bronze` — raw JSON, ingest sink. Path-partitioned by date/season/game. Scheduled runs write both PBP and completed-game shift charts; deterministic keys are overwritten on later rolling-window runs.
 - `nhl-warehouse` — Iceberg data + metadata files under `nhl.silver.*` and `nhl.gold.*` prefixes.
 - `monitoring-mimir` — metrics blocks (30-day retention).
 - `monitoring-loki` — log chunks and index data (14-day retention).

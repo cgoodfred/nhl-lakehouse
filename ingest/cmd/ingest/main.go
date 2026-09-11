@@ -12,6 +12,7 @@ import (
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/manifest"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/nhl"
 	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/season"
+	"github.com/cgoodfred/nhl-lakehouse/ingest/internal/window"
 )
 
 const (
@@ -22,6 +23,10 @@ const (
 func main() {
 	startFlag := flag.String("start", "", "start date (YYYY-MM-DD, inclusive)")
 	endFlag := flag.String("end", "", "end date (YYYY-MM-DD, inclusive)")
+	rollingFlag := flag.Bool("rolling", false, "use a rolling local-calendar date window")
+	lookbackFlag := flag.Int("lookback-days", 2, "rolling window days before today (inclusive)")
+	lookaheadFlag := flag.Int("lookahead-days", 1, "rolling window days after today (inclusive)")
+	timezoneFlag := flag.String("timezone", "America/New_York", "IANA timezone for rolling window")
 	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL (credentials read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars via the AWS SDK default chain)")
 	bucketFlag := flag.String("s3-bucket", "", "S3 bucket to write bronze data to")
 	seasonFlag := flag.String("season", "", "Season in the format YYYYYYYY such as 20242025")
@@ -29,8 +34,20 @@ func main() {
 
 	var start, end time.Time
 	switch {
+	case *rollingFlag && (*seasonFlag != "" || *startFlag != "" || *endFlag != ""):
+		log.Fatalf("--rolling, --season, and --start/--end are mutually exclusive")
 	case *seasonFlag != "" && (*startFlag != "" || *endFlag != ""):
 		log.Fatalf("--season and --start/--end can't be used together")
+	case *rollingFlag:
+		location, err := time.LoadLocation(*timezoneFlag)
+		if err != nil {
+			log.Fatalf("load timezone: %v", err)
+		}
+		start, end, err = window.Dates(time.Now(), location, *lookbackFlag, *lookaheadFlag)
+		if err != nil {
+			log.Fatalf("compute rolling window: %v", err)
+		}
+		log.Printf("rolling window start=%s end=%s timezone=%s", window.FormatDate(start), window.FormatDate(end), *timezoneFlag)
 	case *seasonFlag != "":
 		var err error
 		start, end, err = season.Dates(*seasonFlag)
@@ -119,39 +136,72 @@ func main() {
 		schedulesOK++
 
 		var datePBPBytes, datePBPFailures int
+		var dateShiftOK, dateShiftFailures int
 		for _, g := range games {
-			pbpCtx, cancel := context.WithTimeout(ctx, opTimeout)
-			pbpBody, err := client.PlayByPlay(pbpCtx, g.ID)
-			cancel()
-			if err != nil {
-				log.Printf("date=%s game=%d pbp fetch error=%v", date, g.ID, err)
-				failures = append(failures, manifest.Failure{
-					Date: date, GameID: g.ID, Stage: manifest.StagePBPFetch, Error: err.Error(),
-				})
-				datePBPFailures++
-				gameFailures++
-				continue
+			if !knownGameState(g.GameState) {
+				log.Printf("date=%s game=%d unknown game state=%q; no game data eligibility granted", date, g.ID, g.GameState)
 			}
 
-			writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
-			err = writer.WritePlayByPlay(writeCtx, g.Season, date, g.ID, pbpBody)
-			cancel()
-			if err != nil {
-				log.Printf("date=%s game=%d pbp write error=%v", date, g.ID, err)
-				failures = append(failures, manifest.Failure{
-					Date: date, GameID: g.ID, Stage: manifest.StagePBPWrite, Error: err.Error(),
-				})
-				datePBPFailures++
-				gameFailures++
-				continue
+			if g.PBPEligible() {
+				pbpCtx, cancel := context.WithTimeout(ctx, opTimeout)
+				pbpBody, err := client.PlayByPlay(pbpCtx, g.ID)
+				cancel()
+				if err != nil {
+					log.Printf("date=%s game=%d pbp fetch error=%v", date, g.ID, err)
+					failures = append(failures, manifest.Failure{
+						Date: date, GameID: g.ID, Stage: manifest.StagePBPFetch, Error: err.Error(),
+					})
+					datePBPFailures++
+					gameFailures++
+				} else {
+					writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+					err = writer.WritePlayByPlay(writeCtx, g.Season, date, g.ID, pbpBody)
+					cancel()
+					if err != nil {
+						log.Printf("date=%s game=%d pbp write error=%v", date, g.ID, err)
+						failures = append(failures, manifest.Failure{
+							Date: date, GameID: g.ID, Stage: manifest.StagePBPWrite, Error: err.Error(),
+						})
+						datePBPFailures++
+						gameFailures++
+					} else {
+						gamesOK++
+						datePBPBytes += len(pbpBody)
+						totalBytes += len(pbpBody)
+					}
+				}
 			}
-			gamesOK++
-			datePBPBytes += len(pbpBody)
-			totalBytes += len(pbpBody)
+
+			if g.ShiftEligible() {
+				shiftCtx, cancel := context.WithTimeout(ctx, opTimeout)
+				shiftBody, err := client.ShiftCharts(shiftCtx, g.ID)
+				cancel()
+				if err != nil {
+					log.Printf("date=%s game=%d shift fetch error=%v", date, g.ID, err)
+					failures = append(failures, manifest.Failure{
+						Date: date, GameID: g.ID, Stage: manifest.StageShiftFetch, Error: err.Error(),
+					})
+					dateShiftFailures++
+				} else {
+					writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+					err = writer.WriteShiftCharts(writeCtx, g.Season, date, g.ID, shiftBody)
+					cancel()
+					if err != nil {
+						log.Printf("date=%s game=%d shift write error=%v", date, g.ID, err)
+						failures = append(failures, manifest.Failure{
+							Date: date, GameID: g.ID, Stage: manifest.StageShiftWrite, Error: err.Error(),
+						})
+						dateShiftFailures++
+					} else {
+						dateShiftOK++
+						totalBytes += len(shiftBody)
+					}
+				}
+			}
 		}
 
-		fmt.Printf("date=%s schedule_bytes=%d games=%d pbp_bytes=%d pbp_failures=%d\n",
-			date, len(scheduleBody), len(games), datePBPBytes, datePBPFailures)
+		fmt.Printf("date=%s schedule_bytes=%d games=%d pbp_bytes=%d pbp_failures=%d shifts_ok=%d shift_failures=%d\n",
+			date, len(scheduleBody), len(games), datePBPBytes, datePBPFailures, dateShiftOK, dateShiftFailures)
 	}
 
 	fmt.Printf("done schedules_ok=%d schedule_failures=%d games_ok=%d game_failures=%d total_bytes=%d\n",
@@ -173,7 +223,19 @@ func main() {
 		}
 	}
 
-	if scheduleFailures > 0 || gameFailures > 0 {
+	// A schedule failure means a day's source snapshot was not persisted and is
+	// blocking. Individual PBP/shift failures are partial: their manifest and
+	// logs make them visible while Spark can still process successful objects.
+	if scheduleFailures > 0 {
 		os.Exit(1)
+	}
+}
+
+func knownGameState(state string) bool {
+	switch state {
+	case nhl.GameStateFuture, nhl.GameStatePreview, nhl.GameStateLive, nhl.GameStateCritical, nhl.GameStateFinal, nhl.GameStateOff, nhl.GameStateOver:
+		return true
+	default:
+		return false
 	}
 }

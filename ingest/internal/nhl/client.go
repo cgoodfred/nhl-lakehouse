@@ -14,6 +14,7 @@ import (
 
 const (
 	defaultBaseURL    = "https://api-web.nhle.com/v1"
+	defaultStatsURL   = "https://api.nhle.com"
 	defaultRate       = rate.Limit(2) // requests per second sustained
 	defaultBurst      = 5
 	defaultMaxRetries = 6
@@ -22,6 +23,7 @@ const (
 
 type Client struct {
 	baseURL    string
+	statsURL   string
 	httpClient *http.Client
 	limiter    *rate.Limiter
 	maxRetries int
@@ -34,7 +36,8 @@ func NewClient() *Client {
 
 func NewClientWithBaseURL(baseURL string) *Client {
 	return &Client{
-		baseURL: baseURL,
+		baseURL:  baseURL,
+		statsURL: defaultStatsURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -48,7 +51,8 @@ func NewClientWithBaseURL(baseURL string) *Client {
 // tests don't burn wall-clock time on the production defaults.
 func newClientForTest(baseURL string, r rate.Limit, burst, maxRetries int, backoff func(int, string) time.Duration) *Client {
 	return &Client{
-		baseURL: baseURL,
+		baseURL:  baseURL,
+		statsURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -68,8 +72,25 @@ func (c *Client) PlayByPlay(ctx context.Context, gameID int64) ([]byte, error) {
 	return c.get(ctx, fmt.Sprintf("/gamecenter/%d/play-by-play", gameID))
 }
 
+// ShiftCharts fetches the raw shift chart for a game. The stats API has a
+// separate host from the web API, but shares this client's limiter and retry
+// policy.
+func (c *Client) ShiftCharts(ctx context.Context, gameID int64) ([]byte, error) {
+	body, err := c.getURL(ctx, c.statsURL+"/stats/rest/en/shiftcharts?cayenneExp=gameId="+strconv.FormatInt(gameID, 10), "shifts")
+	if err != nil {
+		return nil, err
+	}
+	if !json.Valid(body) {
+		return nil, fmt.Errorf("shift response is not valid JSON")
+	}
+	return body, nil
+}
+
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
-	url := c.baseURL + path
+	return c.getURL(ctx, c.baseURL+path, "api")
+}
+
+func (c *Client) getURL(ctx context.Context, url, endpoint string) ([]byte, error) {
 
 	for attempt := 0; ; attempt++ {
 		if err := c.limiter.Wait(ctx); err != nil {
@@ -83,7 +104,16 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("do request: %w", err)
+			if attempt < c.maxRetries {
+				delay := c.backoff(attempt, "")
+				select {
+				case <-time.After(delay):
+					continue
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return nil, fmt.Errorf("do %s request: %w", endpoint, err)
 		}
 
 		body, readErr := io.ReadAll(resp.Body)
@@ -98,7 +128,9 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 			return body, nil
 		}
 
-		if status == http.StatusTooManyRequests && attempt < c.maxRetries {
+		if (status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
+			status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
+			status == http.StatusGatewayTimeout) && attempt < c.maxRetries {
 			delay := c.backoff(attempt, retryAfter)
 			select {
 			case <-time.After(delay):
@@ -108,7 +140,7 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 			}
 		}
 
-		return nil, fmt.Errorf("GET %s: status %d", path, status)
+		return nil, fmt.Errorf("GET %s: status %d", endpoint, status)
 	}
 }
 
@@ -130,8 +162,38 @@ func backoffDelay(attempt int, retryAfter string) time.Duration {
 }
 
 type Game struct {
-	ID     int64 `json:"id"`
-	Season int64 `json:"season"`
+	ID           int64  `json:"id"`
+	Season       int64  `json:"season"`
+	GameDate     string `json:"gameDate"`
+	StartTimeUTC string `json:"startTimeUTC"`
+	GameType     int    `json:"gameType"`
+	GameState    string `json:"gameState"`
+}
+
+const (
+	GameStateFuture   = "FUT"
+	GameStatePreview  = "PRE"
+	GameStateLive     = "LIVE"
+	GameStateCritical = "CRIT"
+	GameStateFinal    = "FINAL"
+	GameStateOff      = "OFF"
+	GameStateOver     = "OVER"
+)
+
+func (g Game) PBPEligible() bool {
+	switch g.GameState {
+	case GameStateLive, GameStateCritical, GameStateFinal, GameStateOff, GameStateOver:
+		return true
+	default:
+		return false
+	}
+}
+
+func (g Game) ShiftEligible() bool {
+	if g.GameType != 2 && g.GameType != 3 {
+		return false
+	}
+	return g.GameState == GameStateFinal || g.GameState == GameStateOff || g.GameState == GameStateOver
 }
 
 func ParseGames(scheduleBody []byte) ([]Game, error) {

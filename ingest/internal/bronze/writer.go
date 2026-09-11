@@ -64,6 +64,11 @@ func (w *Writer) WritePlayByPlay(ctx context.Context, season int64, date string,
 	return w.put(ctx, key, body)
 }
 
+func (w *Writer) WriteShiftCharts(ctx context.Context, season int64, date string, gameID int64, body []byte) error {
+	key := fmt.Sprintf("shift-charts/season=%d/date=%s/game_%d.json", season, date, gameID)
+	return w.put(ctx, key, body)
+}
+
 func (w *Writer) put(ctx context.Context, key string, body []byte) error {
 	_, err := w.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(w.bucket),
