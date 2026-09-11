@@ -79,6 +79,7 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 | `silver/silver-plays.yaml` | `silver/plays.py` | `nhl.silver.plays` (partitioned by `season`) | bronze PBP envelopes (plays array) |
 | `silver/silver-players.yaml` | `silver/players.py` | `nhl.silver.players` (SCD-1 dim) | bronze PBP envelopes (rosterSpots array, deduped) |
 | `silver/silver-game-rosters.yaml` | `silver/game_rosters.py` | `nhl.silver.game_rosters` (bridge, partitioned by `season`) | bronze PBP envelopes (rosterSpots array, per-game grain) |
+| `silver/silver-shifts.yaml` | `silver/shifts.py` | `nhl.silver.shifts` (deduplicated, partitioned by `season`) | bronze shift-chart responses |
 | `silver/silver-teams.yaml` | `silver/teams.py` | `nhl.silver.teams` (SCD-1 dim) | `nhl.silver.games` (silver-from-silver) |
 
 `silver-teams.yaml` depends on `silver.games` existing — apply silver-games first.
