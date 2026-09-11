@@ -15,11 +15,14 @@ type Failure struct {
 }
 
 const (
-	StageScheduleFetch = "schedule_fetch"
-	StageScheduleWrite = "schedule_write"
-	StageScheduleParse = "schedule_parse"
-	StagePBPFetch      = "pbp_fetch"
-	StagePBPWrite      = "pbp_write"
+	StageScheduleFetch    = "schedule_fetch"
+	StageScheduleWrite    = "schedule_write"
+	StageScheduleParse    = "schedule_parse"
+	StagePBPFetch         = "pbp_fetch"
+	StagePBPWrite         = "pbp_write"
+	StageShiftFetch       = "shift_fetch"
+	StageShiftWrite       = "shift_write"
+	StageShiftUnavailable = "shift_unavailable"
 )
 
 func RunID(t time.Time) string {

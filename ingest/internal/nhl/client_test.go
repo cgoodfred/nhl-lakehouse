@@ -25,10 +25,10 @@ func TestParseGames(t *testing.T) {
 	}{
 		{
 			name:      "single game",
-			input:     []byte(`{"games": [{"id": 2025020740, "season": 20252026}]}`),
+			input:     []byte(`{"games": [{"id": 2025020740, "season": 20252026, "gameDate": "2026-01-15", "startTimeUTC": "2026-01-15T00:00:00Z", "gameType": 2, "gameState": "FINAL"}]}`),
 			wantLen:   1,
 			wantErr:   false,
-			wantFirst: Game{ID: 2025020740, Season: 20252026},
+			wantFirst: Game{ID: 2025020740, Season: 20252026, GameDate: "2026-01-15", StartTimeUTC: "2026-01-15T00:00:00Z", GameType: 2, GameState: "FINAL"},
 		},
 		{
 			name:    "empty games",
@@ -70,6 +70,32 @@ func TestParseGames(t *testing.T) {
 				t.Errorf("first game: got %+v, want %+v", got[0], tt.wantFirst)
 			}
 		})
+	}
+}
+
+func TestGameEligibility(t *testing.T) {
+	tests := []struct {
+		state      string
+		gameType   int
+		wantPBP    bool
+		wantShifts bool
+	}{
+		{state: "FUT", gameType: 2},
+		{state: "LIVE", gameType: 2, wantPBP: true},
+		{state: "CRIT", gameType: 2, wantPBP: true},
+		{state: "FINAL", gameType: 2, wantPBP: true, wantShifts: true},
+		{state: "OFFICIAL", gameType: 3, wantPBP: true, wantShifts: true},
+		{state: "FINAL", gameType: 1, wantPBP: true},
+		{state: "UNKNOWN", gameType: 2},
+	}
+	for _, tt := range tests {
+		game := Game{GameState: tt.state, GameType: tt.gameType}
+		if got := game.PBPEligible(); got != tt.wantPBP {
+			t.Errorf("state=%s PBP eligible=%v, want %v", tt.state, got, tt.wantPBP)
+		}
+		if got := game.ShiftEligible(); got != tt.wantShifts {
+			t.Errorf("state=%s type=%d shift eligible=%v, want %v", tt.state, tt.gameType, got, tt.wantShifts)
+		}
 	}
 }
 
@@ -161,6 +187,41 @@ func TestClient_PlayByPlay(t *testing.T) {
 	})
 }
 
+func TestClient_ShiftCharts(t *testing.T) {
+	const wantBody = `{"data": [{"gameId": 2025020740}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/stats/rest/en/shiftcharts" {
+			t.Errorf("got path %s, want /stats/rest/en/shiftcharts", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("cayenneExp"); got != "gameId=2025020740" {
+			t.Errorf("got cayenneExp=%q", got)
+		}
+		_, _ = w.Write([]byte(wantBody))
+	}))
+	defer srv.Close()
+
+	client := newClientForTest(srv.URL, rate.Inf, 100, 0, instantBackoff)
+	body, err := client.ShiftCharts(context.Background(), 2025020740)
+	if err != nil {
+		t.Fatalf("ShiftCharts: %v", err)
+	}
+	if string(body) != wantBody {
+		t.Errorf("got body %q, want %q", body, wantBody)
+	}
+}
+
+func TestClient_ShiftChartsRejectsInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	client := newClientForTest(srv.URL, rate.Inf, 100, 0, instantBackoff)
+	if _, err := client.ShiftCharts(context.Background(), 2025020740); err == nil {
+		t.Fatal("expected invalid JSON error")
+	}
+}
+
 func TestClient_RetriesOn429(t *testing.T) {
 	var calls atomic.Int32
 	const wantBody = `{"games": []}`
@@ -184,6 +245,26 @@ func TestClient_RetriesOn429(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Errorf("expected 2 calls (1 fail + 1 success), got %d", calls.Load())
+	}
+}
+
+func TestClient_RetriesOnRetryableServerError(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(w, "temporarily unavailable", http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`{"games": []}`))
+	}))
+	defer srv.Close()
+
+	client := newClientForTest(srv.URL, rate.Inf, 100, 2, instantBackoff)
+	if _, err := client.Schedule(context.Background(), "2026-01-15"); err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("expected retry after 502, got %d calls", calls.Load())
 	}
 }
 
