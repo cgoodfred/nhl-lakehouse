@@ -24,7 +24,7 @@ resource "kubernetes_job_v1" "ingest_backfill" {
         restart_policy = "Never"
         container {
           name  = "ingest"
-          image = "ghcr.io/cgoodfred/nhl-lakehouse/ingest:4efb14bad207f0630f162fa12e68f117b632f3c6"
+          image = "ghcr.io/cgoodfred/nhl-lakehouse/ingest:e00c7d8db8f66717a3d8978892195d10ec2b4283"
 
           args = [
             "--season=${var.backfill_season}",
