@@ -7,7 +7,7 @@ spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
-  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:552e0000f4285acaebe9a5ca9cc2b35947586c77
+  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:e00c7d8db8f66717a3d8978892195d10ec2b4283
   imagePullPolicy: Always
   mainApplicationFile: local:///opt/jobs/silver/game_rosters.py
   sparkVersion: "3.5.7"
