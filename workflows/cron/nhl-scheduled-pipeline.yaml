@@ -1,0 +1,23 @@
+# Deliberately suspended until a manual end-to-end run succeeds.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: nhl-scheduled-pipeline
+  namespace: lakehouse
+  labels:
+    app.kubernetes.io/part-of: nhl-lakehouse
+    app.kubernetes.io/managed-by: opentofu
+    nhl-lakehouse/pipeline: scheduled-ingestion
+spec:
+  schedules:
+    - "0 7,19 * * *"
+  timezone: America/New_York
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  suspend: true
+  workflowSpec:
+    entrypoint: pipeline
+    workflowTemplateRef:
+      name: scheduled-pipeline

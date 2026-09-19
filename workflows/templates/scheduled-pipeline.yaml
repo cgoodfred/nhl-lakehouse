@@ -1,0 +1,106 @@
+# Serialized scheduled lakehouse pipeline. Keep parallelism at one: the
+# namespace has a 10 CPU quota and each resource step also consumes an Argo
+# executor pod while its SparkApplication is running.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: scheduled-pipeline
+  namespace: lakehouse
+spec:
+  entrypoint: pipeline
+  arguments:
+    parameters:
+      - {name: lookback_days, value: "2"}
+      - {name: lookahead_days, value: "1"}
+      - {name: timezone, value: America/New_York}
+      - {name: retry_tracking_transient, value: "true"}
+      - {name: tracking_season, value: ""}
+  templates:
+    - name: pipeline
+      parallelism: 1
+      dag:
+        tasks:
+          - name: ingest-window
+            templateRef: {name: ingest-window, template: run}
+            arguments:
+              parameters:
+                - {name: lookback_days, value: "{{workflow.parameters.lookback_days}}"}
+                - {name: lookahead_days, value: "{{workflow.parameters.lookahead_days}}"}
+                - {name: timezone, value: "{{workflow.parameters.timezone}}"}
+
+          - name: silver-core
+            dependencies: [ingest-window]
+            templateRef: {name: silver-full-rebuild, template: dag}
+
+          - name: silver-shifts
+            dependencies: [silver-core]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: silver}
+                - {name: job_name, value: shifts}
+                - {name: file_stem, value: shifts}
+                - {name: executor_cores, value: "1"}
+                - {name: executor_core_limit, value: "1"}
+                - {name: executor_instances, value: "2"}
+                - {name: executor_memory, value: 2g}
+
+          - name: tracking-ingest
+            dependencies: [silver-core]
+            templateRef: {name: tracking-ingest, template: run}
+            arguments:
+              parameters:
+                - {name: retry_transient, value: "{{workflow.parameters.retry_tracking_transient}}"}
+                - {name: season, value: "{{workflow.parameters.tracking_season}}"}
+
+          - name: silver-tracking-frames
+            dependencies: [tracking-ingest]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: silver}
+                - {name: job_name, value: tracking-frames}
+                - {name: file_stem, value: tracking_frames}
+                - {name: executor_cores, value: "2"}
+                - {name: executor_core_limit, value: "2"}
+                - {name: executor_instances, value: "2"}
+                - {name: executor_memory, value: 2g}
+
+          - name: gold-player-shots
+            dependencies: [silver-shifts]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: gold}
+                - {name: job_name, value: player-shots}
+                - {name: file_stem, value: player_shots}
+                - {name: executor_cores, value: "2"}
+                - {name: executor_core_limit, value: "2"}
+                - {name: executor_instances, value: "1"}
+                - {name: executor_memory, value: 2g}
+
+          - name: gold-tracking-sequences
+            dependencies: [silver-tracking-frames]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: gold}
+                - {name: job_name, value: goal-tracking-sequences}
+                - {name: file_stem, value: goal_tracking_sequences}
+                - {name: executor_cores, value: "2"}
+                - {name: executor_core_limit, value: "2"}
+                - {name: executor_instances, value: "1"}
+                - {name: executor_memory, value: 2g}
+
+          - name: gold-tracking-status
+            dependencies: [gold-tracking-sequences, silver-tracking-frames]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: gold}
+                - {name: job_name, value: goal-tracking-status}
+                - {name: file_stem, value: goal_tracking_status}
+                - {name: executor_cores, value: "2"}
+                - {name: executor_core_limit, value: "2"}
+                - {name: executor_instances, value: "1"}
+                - {name: executor_memory, value: 2g}

@@ -14,8 +14,11 @@ workflows/
 ## Day-to-day
 
 ```bash
-# Apply (or update) a WorkflowTemplate so it's available for submission
+# Apply (or update) reusable WorkflowTemplates
 kubectl apply -f workflows/templates/silver-single-table.yaml
+kubectl apply -f workflows/templates/ingest-window.yaml
+kubectl apply -f workflows/templates/tracking-ingest.yaml
+kubectl apply -f workflows/templates/scheduled-pipeline.yaml
 
 # Submit a one-shot Workflow and follow its progress
 argo submit -n lakehouse workflows/workflows/silver-games-example.yaml --watch
@@ -26,6 +29,16 @@ kubectl create -n lakehouse -f workflows/workflows/silver-games-example.yaml
 # Watch all Workflows
 argo list -n lakehouse
 argo get -n lakehouse <workflow-name>
+
+# Submit the complete pipeline manually while the CronWorkflow is suspended
+argo submit -n lakehouse --from workflowtemplate/scheduled-pipeline --watch
+
+# Inspect or suspend/resume the scheduled trigger
+kubectl get cronworkflow -n lakehouse nhl-scheduled-pipeline -o yaml
+kubectl patch cronworkflow -n lakehouse nhl-scheduled-pipeline \
+  --type merge -p '{"spec":{"suspend":false}}'
+kubectl patch cronworkflow -n lakehouse nhl-scheduled-pipeline \
+  --type merge -p '{"spec":{"suspend":true}}'
 
 # UI (port-forward; see infra/README.md for the namespace + URL)
 kubectl port-forward -n lakehouse svc/argo-workflows-server 2746:2746
@@ -63,6 +76,17 @@ One-shot Workflow that invokes `silver-single-table` with the games job. Smoke t
 
 One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test — rebuilds the core PBP silver tables (games/plays/players/game_rosters/teams) in one Argo submission. Wall-clock ~15-25 min on the Pi cluster at current data volumes.
 
+### Scheduled ingestion templates
+
+`templates/ingest-window.yaml` creates a pinned rolling ingest Job.
+`templates/tracking-ingest.yaml` submits the driver-side tracking fetch as a
+managed SparkApplication. `templates/scheduled-pipeline.yaml` composes those
+steps with the core silver rebuild, shifts, and gold tables. The
+`cron/nhl-scheduled-pipeline.yaml` trigger runs twice daily in
+`America/New_York` and is intentionally suspended until a manual run is
+verified. Updating a CronWorkflow does not mutate already-created Workflow
+runs.
+
 ## Cleanup
 
 Under normal operation you don't need to clean up — `silver-single-table.yaml` sets `timeToLiveSeconds: 60` on the inlined SparkApplication, so completed AND failed CRDs (with their driver pods) get GC'd automatically 60 seconds after any terminal state.
@@ -91,7 +115,6 @@ kubectl delete sparkapplication -n lakehouse \
 
 ## Out of scope (V1)
 
-- Bronze + gold conversions (V2)
-- `CronWorkflow` for nightly runs (V2)
+- Pipeline data-quality validation and scheduled-ingestion dashboards (follow-up)
 - Argo Events / push triggers (V2)
 - Exit hooks that write `silver.pipeline_runs` rows (deferred to the pipeline-health-dashboard Phase 2)
