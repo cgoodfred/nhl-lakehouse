@@ -15,6 +15,7 @@ def _load_fixture(spark, fixtures_dir):
 
 
 def test_malformed_rows_are_counted(spark, fixtures_dir):
+    # shiftNumber=0 event markers are intentionally ignored, not malformed.
     assert count_malformed_shifts(_load_fixture(spark, fixtures_dir)) == 1
 
 

@@ -92,7 +92,13 @@ def clock_seconds(value):
 
 
 def _project_shifts(raw: DataFrame) -> DataFrame:
-    rows = raw.select("season", "date", explode("data").alias("s"))
+    rows = (
+        raw.select("season", "date", explode("data").alias("s"))
+        # ShiftCharts also emits event markers with shiftNumber=0 and no
+        # duration. They are not player shifts and must not count as malformed
+        # shift records or enter the silver table.
+        .filter(col("s.shiftNumber") > 0)
+    )
     projected = rows.select(
         col("season").cast("int").alias("season"),
         to_date(col("date"), "yyyy-MM-dd").alias("game_date"),
