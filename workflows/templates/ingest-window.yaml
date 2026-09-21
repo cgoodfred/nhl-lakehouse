@@ -42,7 +42,7 @@ spec:
                 restartPolicy: Never
                 containers:
                   - name: ingest
-                    image: ghcr.io/cgoodfred/nhl-lakehouse/ingest:e00c7d8db8f66717a3d8978892195d10ec2b4283
+                    image: ghcr.io/cgoodfred/nhl-lakehouse/ingest:af9a7773470662623b04089aa4c905b3e9446dc9
                     args:
                       - --rolling
                       - --lookback-days={{inputs.parameters.lookback_days}}
