@@ -1,0 +1,17 @@
+# One-shot end-to-end run. Keep the CronWorkflow suspended while using this
+# smoke test during rollout.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: nhl-scheduled-pipeline-
+  namespace: lakehouse
+spec:
+  workflowTemplateRef:
+    name: scheduled-pipeline
+  arguments:
+    parameters:
+      - {name: lookback_days, value: "2"}
+      - {name: lookahead_days, value: "1"}
+      - {name: timezone, value: America/New_York}
+      - {name: retry_tracking_transient, value: "true"}
+      - {name: tracking_season, value: ""}

@@ -72,15 +72,20 @@ jobs:
           IMAGE: ghcr.io/cgoodfred/nhl-lakehouse/ingest:${{ github.sha }}
         run: |
           perl -0pi -e 's#image\s+=\s+"ghcr\.io/cgoodfred/nhl-lakehouse/ingest:[^"]+"#image = "$ENV{IMAGE}"#' infra/ingest-backfill.tf
+          perl -0pi -e 's#(image:\s+ghcr\.io/cgoodfred/nhl-lakehouse/ingest):[^\s]+#$1:${{ github.sha }}#' workflows/templates/ingest-window.yaml
 
           if ! grep -Fq "$IMAGE" infra/ingest-backfill.tf; then
             echo "::error::image substitution did not update infra/ingest-backfill.tf"
             exit 1
           fi
+          if ! grep -Fq "$IMAGE" workflows/templates/ingest-window.yaml; then
+            echo "::error::image substitution did not update workflows/templates/ingest-window.yaml"
+            exit 1
+          fi
 
           tofu fmt infra/ingest-backfill.tf
 
-          if git diff --quiet -- infra/ingest-backfill.tf; then
+          if git diff --quiet -- infra/ingest-backfill.tf workflows/templates/ingest-window.yaml; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -99,7 +104,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add infra/ingest-backfill.tf
+          git add infra/ingest-backfill.tf workflows/templates/ingest-window.yaml
           git commit -m "chore(infra): pin ingest image to ${SHORT_SHA}"
           git push --force-with-lease origin "$BRANCH"
 

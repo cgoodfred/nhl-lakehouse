@@ -198,6 +198,14 @@ resource "kubernetes_role" "argo_workflow_runner_lakehouse" {
     verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
   }
 
+  # Rolling ingest is submitted as a short-lived Kubernetes Job. The
+  # Workflow resource step creates it and polls its terminal status.
+  rule {
+    api_groups = ["batch"]
+    resources  = ["jobs"]
+    verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
+  }
+
   # Step pods themselves + log access for the UI.
   rule {
     api_groups = [""]
