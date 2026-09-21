@@ -518,6 +518,15 @@ resource "kubernetes_role" "github_runner_lakehouse_argo" {
     resources  = ["workflowtaskresults"]
     verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
   }
+  # OpenTofu manages the namespaced WorkflowTemplates and CronWorkflow that
+  # define scheduled ingestion. Refresh needs get/list; apply needs the
+  # mutation verbs. Keep this scoped to lakehouse rather than granting the
+  # runner Argo permissions cluster-wide.
+  rule {
+    api_groups = ["argoproj.io"]
+    resources  = ["workflowtemplates", "cronworkflows"]
+    verbs      = ["create", "delete", "get", "list", "patch", "update", "watch"]
+  }
   rule {
     api_groups = ["sparkoperator.k8s.io"]
     resources  = ["sparkapplications"]
