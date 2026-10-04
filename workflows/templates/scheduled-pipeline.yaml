@@ -8,6 +8,10 @@ metadata:
   namespace: lakehouse
 spec:
   entrypoint: pipeline
+  # Argo executor pods otherwise remain as completed 500m CPU-limit pods and
+  # contribute to the lakehouse quota between runs.
+  podGC:
+    strategy: OnWorkflowCompletion
   arguments:
     parameters:
       - {name: lookback_days, value: "2"}

@@ -13,6 +13,7 @@ spec:
   sparkVersion: "3.5.7"
   restartPolicy:
     type: Never
+  timeToLiveSeconds: 60
 
   # I/O-bound serial fetch loop runs on the driver; executors do nothing
   # useful here (one createDataFrame call + one short shuffle for the write).
