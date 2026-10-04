@@ -45,7 +45,10 @@ def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
         if manifest_key.startswith("s3")
         else "s3a://nhl-bronze/" + manifest_key.lstrip("/")
     )
-    row = spark.read.json(path).first()
+    # Ingest writes impact manifests with json.MarshalIndent. Without
+    # multiLine, Spark treats each line as a separate JSON record and the
+    # scope fields become null, causing an incremental job to silently no-op.
+    row = spark.read.option("multiLine", "true").json(path).first()
     if row is None:
         raise ValueError(f"impact manifest is empty: {path}")
     payload = row.asDict(recursive=True)
