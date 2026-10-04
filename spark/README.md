@@ -92,6 +92,22 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 
 All gold jobs depend on the silver layer being populated.
 
+## Incremental silver mode
+
+The `games`, `plays`, `game_rosters`, and `shifts` jobs accept an explicit
+incremental scope while retaining full rebuild as the default:
+
+```text
+--processing-mode incremental \\
+--impact-manifest-key _runs/run=<runID>/impact.json
+```
+
+The manifest is read from the `nhl-bronze` S3 bucket. Each affected game is
+deleted from the target Iceberg table and replaced with rows parsed from its
+refreshed bronze object, so corrected or removed source rows do not remain
+stale. Incremental is the default for these four jobs; a full rebuild passes
+`--processing-mode full` explicitly.
+
 ## Tests
 
 Transformation logic lives in pure functions (e.g. `transform_plays` in `silver/plays.py`) so it can be exercised against fixtures with a local SparkSession. Tests live under `spark/tests/`.

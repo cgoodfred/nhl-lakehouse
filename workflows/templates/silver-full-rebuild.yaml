@@ -64,6 +64,10 @@ spec:
     strategy: OnWorkflowCompletion
   templates:
     - name: dag
+      inputs:
+        parameters:
+          - {name: processing_mode, value: full}
+          - {name: impact_manifest_key, value: ""}
       parallelism: 1
       dag:
         tasks:
@@ -80,6 +84,8 @@ spec:
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "2"}
                 - {name: executor_memory,      value: "2g"}
+                - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
+                - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
 
           - name: silver-plays
             dependencies: [silver-games]
@@ -95,6 +101,8 @@ spec:
                 - {name: executor_core_limit,  value: "2"}
                 - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "2g"}
+                - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
+                - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
 
           - name: silver-players
             dependencies: [silver-games]
@@ -110,6 +118,8 @@ spec:
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "1g"}
+                - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
+                - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
 
           - name: silver-game-rosters
             dependencies: [silver-games]
@@ -125,6 +135,8 @@ spec:
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "2"}
                 - {name: executor_memory,      value: "1g"}
+                - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
+                - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
 
           - name: silver-teams
             dependencies: [silver-games]
@@ -140,3 +152,5 @@ spec:
                 - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "1g"}
+                - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
+                - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}

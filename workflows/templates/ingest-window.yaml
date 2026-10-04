@@ -13,6 +13,7 @@ spec:
           - {name: lookback_days, value: "2"}
           - {name: lookahead_days, value: "1"}
           - {name: timezone, value: America/New_York}
+          - {name: run_id, value: "{{workflow.name}}"}
       resource:
         action: create
         successCondition: status.succeeded == 1
@@ -48,6 +49,7 @@ spec:
                       - --lookback-days={{inputs.parameters.lookback_days}}
                       - --lookahead-days={{inputs.parameters.lookahead_days}}
                       - --timezone={{inputs.parameters.timezone}}
+                      - --run-id={{inputs.parameters.run_id}}
                       - --s3-endpoint=http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
                       - --s3-bucket=nhl-bronze
                     env:

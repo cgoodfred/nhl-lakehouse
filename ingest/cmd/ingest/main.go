@@ -30,6 +30,7 @@ func main() {
 	lookbackFlag := flag.Int("lookback-days", 2, "rolling window days before today (inclusive)")
 	lookaheadFlag := flag.Int("lookahead-days", 1, "rolling window days after today (inclusive)")
 	timezoneFlag := flag.String("timezone", "America/New_York", "IANA timezone for rolling window")
+	runIDFlag := flag.String("run-id", "", "stable run identifier for manifests (defaults to a unique timestamp ID)")
 	endpointFlag := flag.String("s3-endpoint", "", "S3-compatible endpoint URL (credentials read from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars via the AWS SDK default chain)")
 	bucketFlag := flag.String("s3-bucket", "", "S3 bucket to write bronze data to")
 	seasonFlag := flag.String("season", "", "Season in the format YYYYYYYY such as 20242025")
@@ -79,9 +80,13 @@ func main() {
 	}
 
 	ctx := context.Background()
-	runID, err := manifest.UniqueRunID(time.Now())
-	if err != nil {
-		log.Fatalf("generate run id: %v", err)
+	runID := *runIDFlag
+	if runID == "" {
+		generatedRunID, err := manifest.UniqueRunID(time.Now())
+		if err != nil {
+			log.Fatalf("generate run id: %v", err)
+		}
+		runID = generatedRunID
 	}
 
 	writer, err := bronze.NewWriter(ctx, bronze.Config{

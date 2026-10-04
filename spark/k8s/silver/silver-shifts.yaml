@@ -11,6 +11,7 @@ spec:
   image: ghcr.io/cgoodfred/nhl-lakehouse/spark:d16c54d94a6f66f4c1f79857c3aecd208b6a0977
   imagePullPolicy: Always
   mainApplicationFile: local:///opt/jobs/silver/shifts.py
+  arguments: [--processing-mode, full]
   sparkVersion: "3.5.7"
   restartPolicy:
     type: Never

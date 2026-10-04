@@ -51,6 +51,8 @@ spec:
           - name: executor_core_limit
           - name: executor_instances
           - name: executor_memory
+          - {name: processing_mode, value: incremental}
+          - {name: impact_manifest_key, value: ""}
       resource:
         action: create
         # SparkApplication's status.applicationState.state moves through:
@@ -82,6 +84,11 @@ spec:
             image: ghcr.io/cgoodfred/nhl-lakehouse/spark:d16c54d94a6f66f4c1f79857c3aecd208b6a0977
             imagePullPolicy: Always
             mainApplicationFile: "local:///opt/jobs/{{inputs.parameters.tier}}/{{inputs.parameters.file_stem}}.py"
+            arguments:
+              - --processing-mode
+              - "{{inputs.parameters.processing_mode}}"
+              - --impact-manifest-key
+              - "{{inputs.parameters.impact_manifest_key}}"
             sparkVersion: "3.5.7"
             restartPolicy:
               type: Never

@@ -31,10 +31,15 @@ spec:
                 - {name: lookback_days, value: "{{workflow.parameters.lookback_days}}"}
                 - {name: lookahead_days, value: "{{workflow.parameters.lookahead_days}}"}
                 - {name: timezone, value: "{{workflow.parameters.timezone}}"}
+                - {name: run_id, value: "{{workflow.name}}"}
 
           - name: silver-core
             dependencies: [ingest-window]
             templateRef: {name: silver-full-rebuild, template: dag}
+            arguments:
+              parameters:
+                - {name: processing_mode, value: incremental}
+                - {name: impact_manifest_key, value: "_runs/run={{workflow.name}}/impact.json"}
 
           - name: silver-shifts
             dependencies: [silver-core]
@@ -48,6 +53,8 @@ spec:
                 - {name: executor_core_limit, value: "1"}
                 - {name: executor_instances, value: "2"}
                 - {name: executor_memory, value: 2g}
+                - {name: processing_mode, value: incremental}
+                - {name: impact_manifest_key, value: "_runs/run={{workflow.name}}/impact.json"}
 
           - name: tracking-ingest
             dependencies: [silver-core]

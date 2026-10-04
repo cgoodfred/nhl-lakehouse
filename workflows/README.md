@@ -48,7 +48,7 @@ kubectl port-forward -n lakehouse svc/argo-workflows-server 2746:2746
 
 ### `templates/silver-single-table.yaml`
 
-Reusable WorkflowTemplate. Takes `{tier, job_name, file_stem, executor_cores, executor_core_limit, executor_instances, executor_memory}` parameters and inlines a full SparkApplication spec that mirrors the existing `spark/k8s/silver/silver-games.yaml`. Uses `metadata.generateName` so each run creates a uniquely-named SparkApplication that can coexist with the imperatively-applied ones during the migration.
+Reusable WorkflowTemplate. Takes `{tier, job_name, file_stem, executor_cores, executor_core_limit, executor_instances, executor_memory, processing_mode, impact_manifest_key}` parameters and inlines a full SparkApplication spec that mirrors the existing `spark/k8s/silver/silver-games.yaml`. Incremental processing is the default; full rebuild callers pass `processing_mode=full`. Uses `metadata.generateName` so each run creates a uniquely-named SparkApplication that can coexist with the imperatively-applied ones during the migration.
 
 Two name params instead of one because K8s resource names use RFC 1123 (hyphens, no underscores) but Python module filenames use snake_case. For most jobs the two are trivially related — `game_rosters` (file) ↔ `game-rosters` (K8s name).
 
