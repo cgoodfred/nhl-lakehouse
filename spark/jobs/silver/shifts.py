@@ -33,7 +33,13 @@ from pyspark.sql.types import (
 )
 from pyspark.sql.window import Window
 
-from common import get_spark
+from common import (
+    get_spark,
+    load_impact_scope,
+    processing_arguments,
+    source_paths,
+    write_incremental,
+)
 
 BRONZE_PATH = "s3a://nhl-bronze/shift-charts/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/shift-charts"
@@ -161,10 +167,20 @@ def transform_shifts(raw: DataFrame) -> DataFrame:
 
 def main() -> None:
     spark = get_spark("silver-shifts")
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
+    paths = source_paths(scope, BRONZE_PATH, "shift")
+    if not paths:
+        print("silver.shifts: no refreshed shift objects; nothing to write")
+        return
     raw = (
         spark.read.option("basePath", BRONZE_BASE)
         .schema(SHIFT_SCHEMA)
-        .json(BRONZE_PATH)
+        .json(paths)
     )
     # Path partition discovery is explicit because date is not in the JSON
     # response. Keeping it as a separate column also makes fixture tests clear.
@@ -178,7 +194,10 @@ def main() -> None:
     shifts = transform_shifts(raw)
     raw_count = raw.select(explode("data")).count()
     deduplicated_count = shifts.count()
-    shifts.writeTo("nhl.silver.shifts").partitionedBy(col("season")).createOrReplace()
+    if scope is None:
+        shifts.writeTo("nhl.silver.shifts").partitionedBy(col("season")).createOrReplace()
+    else:
+        write_incremental(spark, "nhl.silver.shifts", shifts, scope.game_ids)
     print(
         "silver-shifts: complete "
         f"(raw_rows={raw_count}, deduplicated_rows={deduplicated_count})"

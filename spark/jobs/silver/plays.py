@@ -20,7 +20,13 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from common import get_spark
+from common import (
+    get_spark,
+    load_impact_scope,
+    processing_arguments,
+    source_paths,
+    write_incremental,
+)
 
 BRONZE_PATH = "s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
@@ -211,12 +217,24 @@ def transform_plays(raw_df: DataFrame) -> DataFrame:
 
 def main() -> None:
     spark = get_spark("silver-plays")
-
-    raw = spark.read.schema(PLAYS_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
+    paths = source_paths(scope, BRONZE_PATH, "pbp")
+    if not paths:
+        print("silver.plays: no refreshed PBP objects; nothing to write")
+        return
+    raw = spark.read.schema(PLAYS_SCHEMA).option("basePath", BRONZE_BASE).json(paths)
 
     plays = transform_plays(raw)
 
-    plays.writeTo("nhl.silver.plays").partitionedBy(col("season")).createOrReplace()
+    if scope is None:
+        plays.writeTo("nhl.silver.plays").partitionedBy(col("season")).createOrReplace()
+    else:
+        write_incremental(spark, "nhl.silver.plays", plays, scope.game_ids)
 
     written = spark.read.table("nhl.silver.plays").count()
     print(f"silver-plays: complete (rows={written})")

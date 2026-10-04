@@ -19,7 +19,13 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from common import get_spark
+from common import (
+    get_spark,
+    load_impact_scope,
+    processing_arguments,
+    source_paths,
+    write_incremental,
+)
 
 BRONZE_PATH = "s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
@@ -82,8 +88,17 @@ GAMES_SCHEMA = StructType(
 
 def main() -> None:
     spark = get_spark("silver-games")
-
-    raw = spark.read.schema(GAMES_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
+    paths = source_paths(scope, BRONZE_PATH, "pbp")
+    if not paths:
+        print("silver.games: no refreshed PBP objects; nothing to write")
+        return
+    raw = spark.read.schema(GAMES_SCHEMA).option("basePath", BRONZE_BASE).json(paths)
 
     games = raw.select(
         col("id").alias("game_id"),
@@ -118,7 +133,10 @@ def main() -> None:
         current_timestamp().alias("ingested_at"),
     )
 
-    games.writeTo("nhl.silver.games").createOrReplace()
+    if scope is None:
+        games.writeTo("nhl.silver.games").createOrReplace()
+    else:
+        write_incremental(spark, "nhl.silver.games", games, scope.game_ids)
 
     written = spark.read.table("nhl.silver.games").count()
     print(f"silver-games: complete (rows={written})")
