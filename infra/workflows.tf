@@ -17,11 +17,25 @@ import {
 resource "kubernetes_manifest" "silver_single_table_workflow_template" {
   manifest = yamldecode(file("${path.module}/../workflows/templates/silver-single-table.yaml"))
 
+  # These templates were originally applied with kubectl client-side apply.
+  # OpenTofu is now authoritative and must claim the existing spec fields.
+  field_manager {
+    name            = "opentofu"
+    force_conflicts = true
+  }
+
   depends_on = [helm_release.argo_workflows]
 }
 
 resource "kubernetes_manifest" "silver_full_rebuild_workflow_template" {
   manifest = yamldecode(file("${path.module}/../workflows/templates/silver-full-rebuild.yaml"))
+
+  # These templates were originally applied with kubectl client-side apply.
+  # OpenTofu is now authoritative and must claim the existing spec fields.
+  field_manager {
+    name            = "opentofu"
+    force_conflicts = true
+  }
 
   depends_on = [
     helm_release.argo_workflows,
