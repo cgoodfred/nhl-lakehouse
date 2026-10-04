@@ -13,6 +13,7 @@ spec:
   sparkVersion: "3.5.7"
   restartPolicy:
     type: Never
+  timeToLiveSeconds: 60
 
   driver:
     cores: 2

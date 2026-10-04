@@ -60,6 +60,8 @@ metadata:
   namespace: lakehouse
 spec:
   entrypoint: dag
+  podGC:
+    strategy: OnWorkflowCompletion
   templates:
     - name: dag
       parallelism: 1
