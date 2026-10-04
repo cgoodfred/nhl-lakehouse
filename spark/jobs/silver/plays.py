@@ -234,7 +234,7 @@ def main() -> None:
     if scope is None:
         plays.writeTo("nhl.silver.plays").partitionedBy(col("season")).createOrReplace()
     else:
-        write_incremental(spark, "nhl.silver.plays", plays, scope.game_ids)
+        write_incremental(spark, "nhl.silver.plays", plays, scope.pbp_game_ids)
 
     written = spark.read.table("nhl.silver.plays").count()
     print(f"silver-plays: complete (rows={written})")

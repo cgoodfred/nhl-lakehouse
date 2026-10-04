@@ -21,7 +21,8 @@ def get_spark(app_name: str) -> SparkSession:
 class ImpactScope:
     """Paths and game IDs refreshed by one ingest run."""
 
-    game_ids: list[int]
+    pbp_game_ids: list[int]
+    shift_game_ids: list[int]
     pbp_paths: list[str]
     shift_paths: list[str]
 
@@ -50,15 +51,23 @@ def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
     payload = row.asDict(recursive=True)
     objects = [str(value) for value in (payload.get("objects") or [])]
     games = payload.get("games") or []
-    game_ids = sorted(
+    pbp_game_ids = sorted(
         {
             int(game["game_id"])
             for game in games
-            if game.get("game_id") is not None
+            if game.get("game_id") is not None and game.get("pbp_status") == "refreshed"
+        }
+    )
+    shift_game_ids = sorted(
+        {
+            int(game["game_id"])
+            for game in games
+            if game.get("game_id") is not None and game.get("shift_status") == "refreshed"
         }
     )
     return ImpactScope(
-        game_ids=game_ids,
+        pbp_game_ids=pbp_game_ids,
+        shift_game_ids=shift_game_ids,
         pbp_paths=[
             "s3a://nhl-bronze/" + key for key in objects if key.startswith("play-by-play/")
         ],

@@ -197,7 +197,7 @@ def main() -> None:
     if scope is None:
         shifts.writeTo("nhl.silver.shifts").partitionedBy(col("season")).createOrReplace()
     else:
-        write_incremental(spark, "nhl.silver.shifts", shifts, scope.game_ids)
+        write_incremental(spark, "nhl.silver.shifts", shifts, scope.shift_game_ids)
     print(
         "silver-shifts: complete "
         f"(raw_rows={raw_count}, deduplicated_rows={deduplicated_count})"

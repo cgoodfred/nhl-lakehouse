@@ -8,7 +8,8 @@ def test_full_scope_uses_partitioned_glob():
 
 def test_incremental_scope_uses_manifest_objects():
     scope = ImpactScope(
-        game_ids=[2026020001],
+        pbp_game_ids=[2026020001],
+        shift_game_ids=[2026020001],
         pbp_paths=["s3a://nhl-bronze/play-by-play/season=20262027/game.json"],
         shift_paths=["s3a://nhl-bronze/shift-charts/season=20262027/game.json"],
     )

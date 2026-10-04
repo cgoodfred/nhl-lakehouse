@@ -136,7 +136,7 @@ def main() -> None:
     if scope is None:
         games.writeTo("nhl.silver.games").createOrReplace()
     else:
-        write_incremental(spark, "nhl.silver.games", games, scope.game_ids)
+        write_incremental(spark, "nhl.silver.games", games, scope.pbp_game_ids)
 
     written = spark.read.table("nhl.silver.games").count()
     print(f"silver-games: complete (rows={written})")
