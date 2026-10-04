@@ -49,6 +49,8 @@ Two independent ingest paths, both landing raw JSON in the `nhl-bronze` bucket.
 
 - `schedule/date=<YYYY-MM-DD>/schedule.json` — daily schedule envelopes
 - `play-by-play/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` — one file per game
+- `shift-charts/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` — completed-game shift charts
+- `_runs/run=<runID>/impact.json` — bounded per-run summary of written objects and affected game/source statuses
 - `_runs/run=<runID>/failures.json` — per-run failure manifest for observability
 
 **`spark/jobs/bronze/tracking_ingest.py`** — driver-side fetch of per-goal tracking payloads from `wsr.nhle.com`. Same rate-limited pattern, but runs inside a SparkApplication so it can maintain a `tracking_attempts` Iceberg table alongside the raw fetches. Writes:

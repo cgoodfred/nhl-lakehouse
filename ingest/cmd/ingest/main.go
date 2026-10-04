@@ -16,8 +16,11 @@ import (
 )
 
 const (
-	dateLayout = "2006-01-02"
-	opTimeout  = 30 * time.Second
+	dateLayout        = "2006-01-02"
+	opTimeout         = 30 * time.Second
+	statusRefreshed   = "refreshed"
+	statusFailed      = "failed"
+	statusNotEligible = "not_eligible"
 )
 
 func main() {
@@ -95,6 +98,13 @@ func main() {
 	var gamesOK, gameFailures int
 	var totalBytes int
 	var failures []manifest.Failure
+	impact := manifest.Impact{
+		RunID:       runID,
+		WindowStart: start.Format(dateLayout),
+		WindowEnd:   end.Format(dateLayout),
+		Objects:     []string{},
+		Games:       []manifest.GameImpact{},
+	}
 
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		date := d.Format(dateLayout)
@@ -123,6 +133,7 @@ func main() {
 			continue
 		}
 		totalBytes += len(scheduleBody)
+		impact.Objects = append(impact.Objects, bronze.ScheduleKey(date))
 
 		games, err := nhl.ParseGames(scheduleBody)
 		if err != nil {
@@ -138,11 +149,20 @@ func main() {
 		var datePBPBytes, datePBPFailures int
 		var dateShiftOK, dateShiftFailures int
 		for _, g := range games {
+			gameImpact := manifest.GameImpact{
+				Date:        date,
+				GameID:      g.ID,
+				Season:      g.Season,
+				State:       g.GameState,
+				PBPStatus:   statusNotEligible,
+				ShiftStatus: statusNotEligible,
+			}
 			if !knownGameState(g.GameState) {
 				log.Printf("date=%s game=%d unknown game state=%q; no game data eligibility granted", date, g.ID, g.GameState)
 			}
 
 			if g.PBPEligible() {
+				gameImpact.PBPStatus = statusFailed
 				pbpCtx, cancel := context.WithTimeout(ctx, opTimeout)
 				pbpBody, err := client.PlayByPlay(pbpCtx, g.ID)
 				cancel()
@@ -151,6 +171,7 @@ func main() {
 					failures = append(failures, manifest.Failure{
 						Date: date, GameID: g.ID, Stage: manifest.StagePBPFetch, Error: err.Error(),
 					})
+					gameImpact.PBPError = err.Error()
 					datePBPFailures++
 					gameFailures++
 				} else {
@@ -162,10 +183,13 @@ func main() {
 						failures = append(failures, manifest.Failure{
 							Date: date, GameID: g.ID, Stage: manifest.StagePBPWrite, Error: err.Error(),
 						})
+						gameImpact.PBPError = err.Error()
 						datePBPFailures++
 						gameFailures++
 					} else {
 						gamesOK++
+						gameImpact.PBPStatus = statusRefreshed
+						impact.Objects = append(impact.Objects, bronze.PlayByPlayKey(g.Season, date, g.ID))
 						datePBPBytes += len(pbpBody)
 						totalBytes += len(pbpBody)
 					}
@@ -173,6 +197,7 @@ func main() {
 			}
 
 			if g.ShiftEligible() {
+				gameImpact.ShiftStatus = statusFailed
 				shiftCtx, cancel := context.WithTimeout(ctx, opTimeout)
 				shiftBody, err := client.ShiftCharts(shiftCtx, g.ID)
 				cancel()
@@ -181,6 +206,7 @@ func main() {
 					failures = append(failures, manifest.Failure{
 						Date: date, GameID: g.ID, Stage: manifest.StageShiftFetch, Error: err.Error(),
 					})
+					gameImpact.ShiftError = err.Error()
 					dateShiftFailures++
 				} else {
 					writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
@@ -191,17 +217,38 @@ func main() {
 						failures = append(failures, manifest.Failure{
 							Date: date, GameID: g.ID, Stage: manifest.StageShiftWrite, Error: err.Error(),
 						})
+						gameImpact.ShiftError = err.Error()
 						dateShiftFailures++
 					} else {
 						dateShiftOK++
+						gameImpact.ShiftStatus = statusRefreshed
+						impact.Objects = append(impact.Objects, bronze.ShiftChartsKey(g.Season, date, g.ID))
 						totalBytes += len(shiftBody)
 					}
 				}
 			}
+			impact.Games = append(impact.Games, gameImpact)
 		}
 
 		fmt.Printf("date=%s schedule_bytes=%d games=%d pbp_bytes=%d pbp_failures=%d shifts_ok=%d shift_failures=%d\n",
 			date, len(scheduleBody), len(games), datePBPBytes, datePBPFailures, dateShiftOK, dateShiftFailures)
+	}
+
+	impactWriteFailed := false
+	impactBody, err := manifest.MarshalImpact(impact)
+	if err != nil {
+		log.Printf("marshal impact manifest: %v", err)
+		impactWriteFailed = true
+	} else {
+		writeCtx, cancel := context.WithTimeout(ctx, opTimeout)
+		err = writer.WriteRunImpact(writeCtx, runID, impactBody)
+		cancel()
+		if err != nil {
+			log.Printf("write impact manifest: %v", err)
+			impactWriteFailed = true
+		} else {
+			fmt.Printf("impact manifest written run=%s games=%d objects=%d\n", runID, len(impact.Games), len(impact.Objects))
+		}
 	}
 
 	fmt.Printf("done schedules_ok=%d schedule_failures=%d games_ok=%d game_failures=%d total_bytes=%d\n",
@@ -226,7 +273,7 @@ func main() {
 	// A schedule failure means a day's source snapshot was not persisted and is
 	// blocking. Individual PBP/shift failures are partial: their manifest and
 	// logs make them visible while Spark can still process successful objects.
-	if scheduleFailures > 0 {
+	if scheduleFailures > 0 || impactWriteFailed {
 		os.Exit(1)
 	}
 }

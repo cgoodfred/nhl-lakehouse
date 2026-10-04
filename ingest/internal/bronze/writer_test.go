@@ -127,6 +127,35 @@ func TestWriter_WriteRunFailures(t *testing.T) {
 	})
 }
 
+func TestWriter_WriteRunImpact(t *testing.T) {
+	const (
+		bucket  = "nhl-bronze"
+		runID   = "20260619T143012Z-a7b3c1d4"
+		body    = `{"run_id":"20260619T143012Z-a7b3c1d4","games":[]}`
+		wantKey = "_runs/run=20260619T143012Z-a7b3c1d4/impact.json"
+	)
+
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		buf, _ := io.ReadAll(r.Body)
+		gotBody = string(buf)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	writer := newTestWriter(srv.URL, bucket)
+	if err := writer.WriteRunImpact(context.Background(), runID, []byte(body)); err != nil {
+		t.Fatalf("WriteRunImpact: %v", err)
+	}
+	if gotPath != "/"+bucket+"/"+wantKey {
+		t.Errorf("got path %q, want %q", gotPath, "/"+bucket+"/"+wantKey)
+	}
+	if gotBody != body {
+		t.Errorf("got body %q, want %q", gotBody, body)
+	}
+}
+
 func TestWriter_WritePlayByPlay(t *testing.T) {
 	const (
 		bucket  = "nhl-bronze"
