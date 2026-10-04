@@ -454,7 +454,7 @@ resource "kubernetes_deployment" "github_runner" {
 
         container {
           name  = "runner"
-          image = "myoung34/github-runner:2.335.1-ubuntu-jammy"
+          image = "myoung34/github-runner:2.337.0-ubuntu-jammy"
 
           env {
             name  = "REPO_URL"
@@ -471,10 +471,6 @@ resource "kubernetes_deployment" "github_runner" {
           env {
             name  = "RUNNER_WORKDIR"
             value = "/tmp/runner"
-          }
-          env {
-            name  = "DISABLE_AUTO_UPDATE"
-            value = "true"
           }
           env {
             name = "ACCESS_TOKEN"
