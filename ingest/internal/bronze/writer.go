@@ -55,18 +55,27 @@ func NewWriterFromClient(client *s3.Client, bucket string) *Writer {
 }
 
 func (w *Writer) WriteSchedule(ctx context.Context, date string, body []byte) error {
-	key := fmt.Sprintf("schedule/date=%s/schedule.json", date)
-	return w.put(ctx, key, body)
+	return w.put(ctx, ScheduleKey(date), body)
 }
 
 func (w *Writer) WritePlayByPlay(ctx context.Context, season int64, date string, gameID int64, body []byte) error {
-	key := fmt.Sprintf("play-by-play/season=%d/date=%s/game_%d.json", season, date, gameID)
-	return w.put(ctx, key, body)
+	return w.put(ctx, PlayByPlayKey(season, date, gameID), body)
 }
 
 func (w *Writer) WriteShiftCharts(ctx context.Context, season int64, date string, gameID int64, body []byte) error {
-	key := fmt.Sprintf("shift-charts/season=%d/date=%s/game_%d.json", season, date, gameID)
-	return w.put(ctx, key, body)
+	return w.put(ctx, ShiftChartsKey(season, date, gameID), body)
+}
+
+func ScheduleKey(date string) string {
+	return fmt.Sprintf("schedule/date=%s/schedule.json", date)
+}
+
+func PlayByPlayKey(season int64, date string, gameID int64) string {
+	return fmt.Sprintf("play-by-play/season=%d/date=%s/game_%d.json", season, date, gameID)
+}
+
+func ShiftChartsKey(season int64, date string, gameID int64) string {
+	return fmt.Sprintf("shift-charts/season=%d/date=%s/game_%d.json", season, date, gameID)
 }
 
 func (w *Writer) put(ctx context.Context, key string, body []byte) error {
@@ -83,5 +92,10 @@ func (w *Writer) put(ctx context.Context, key string, body []byte) error {
 
 func (w *Writer) WriteRunFailures(ctx context.Context, runID string, body []byte) error {
 	key := fmt.Sprintf("_runs/run=%s/failures.json", runID)
+	return w.put(ctx, key, body)
+}
+
+func (w *Writer) WriteRunImpact(ctx context.Context, runID string, body []byte) error {
+	key := fmt.Sprintf("_runs/run=%s/impact.json", runID)
 	return w.put(ctx, key, body)
 }

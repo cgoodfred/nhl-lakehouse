@@ -88,3 +88,28 @@ func TestMarshal(t *testing.T) {
 		t.Errorf("expected pretty-printed output with newlines, got: %s", body)
 	}
 }
+
+func TestMarshalImpact(t *testing.T) {
+	input := Impact{
+		RunID:       "20260619T143012Z-a7b3c1d4",
+		WindowStart: "2026-06-17",
+		WindowEnd:   "2026-06-20",
+		Objects:     []string{"schedule/date=2026-06-19/schedule.json"},
+		Games: []GameImpact{{
+			Date: "2026-06-19", GameID: 2026020001, Season: 20262027,
+			State: "FINAL", PBPStatus: "refreshed", ShiftStatus: "not_eligible",
+		}},
+	}
+
+	body, err := MarshalImpact(input)
+	if err != nil {
+		t.Fatalf("MarshalImpact: %v", err)
+	}
+	var got Impact
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(got, input) {
+		t.Errorf("round-trip mismatch:\n got=%+v\nwant=%+v", got, input)
+	}
+}
