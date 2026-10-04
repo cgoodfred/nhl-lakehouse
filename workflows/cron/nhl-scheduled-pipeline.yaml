@@ -1,4 +1,4 @@
-# Deliberately suspended until a manual end-to-end run succeeds.
+# Enable after the manual incremental validation run has succeeded.
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
@@ -16,7 +16,7 @@ spec:
   startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
-  suspend: true
+  suspend: false
   workflowSpec:
     entrypoint: pipeline
     workflowTemplateRef:
