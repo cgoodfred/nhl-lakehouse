@@ -473,10 +473,6 @@ resource "kubernetes_deployment" "github_runner" {
             value = "/tmp/runner"
           }
           env {
-            name  = "DISABLE_AUTO_UPDATE"
-            value = "false"
-          }
-          env {
             name = "ACCESS_TOKEN"
             value_from {
               secret_key_ref {
