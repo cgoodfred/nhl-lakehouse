@@ -105,8 +105,8 @@ incremental scope while retaining full rebuild as the default:
 The manifest is read from the `nhl-bronze` S3 bucket. Each affected game is
 deleted from the target Iceberg table and replaced with rows parsed from its
 refreshed bronze object, so corrected or removed source rows do not remain
-stale. The scheduled workflow does not enable this mode yet; it is being
-validated manually against equivalent full rebuilds first.
+stale. Incremental is the default for these four jobs; a full rebuild passes
+`--processing-mode full` explicitly.
 
 ## Tests
 

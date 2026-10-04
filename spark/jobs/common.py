@@ -29,7 +29,7 @@ class ImpactScope:
 
 def processing_arguments():
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--processing-mode", choices=("full", "incremental"), default="full")
+    parser.add_argument("--processing-mode", choices=("full", "incremental"), default="incremental")
     parser.add_argument("--impact-manifest-key", default="")
     args, _ = parser.parse_known_args()
     if args.processing_mode == "incremental" and not args.impact_manifest_key:
