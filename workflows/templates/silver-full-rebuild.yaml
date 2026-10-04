@@ -82,7 +82,7 @@ spec:
                 - {name: file_stem,            value: games}
                 - {name: executor_cores,       value: "1"}
                 - {name: executor_core_limit,  value: "1"}
-                - {name: executor_instances,   value: "2"}
+                - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "2g"}
                 - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
                 - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
@@ -97,8 +97,8 @@ spec:
                 - {name: tier,                 value: silver}
                 - {name: job_name,             value: plays}
                 - {name: file_stem,            value: plays}
-                - {name: executor_cores,       value: "2"}
-                - {name: executor_core_limit,  value: "2"}
+                - {name: executor_cores,       value: "1"}
+                - {name: executor_core_limit,  value: "1"}
                 - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "2g"}
                 - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
@@ -133,7 +133,7 @@ spec:
                 - {name: file_stem,            value: game_rosters}
                 - {name: executor_cores,       value: "1"}
                 - {name: executor_core_limit,  value: "1"}
-                - {name: executor_instances,   value: "2"}
+                - {name: executor_instances,   value: "1"}
                 - {name: executor_memory,      value: "1g"}
                 - {name: processing_mode,      value: "{{inputs.parameters.processing_mode}}"}
                 - {name: impact_manifest_key,  value: "{{inputs.parameters.impact_manifest_key}}"}
