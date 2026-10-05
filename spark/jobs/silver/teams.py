@@ -14,9 +14,9 @@ handled correctly — the latest known value wins.
 """
 
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, current_timestamp, max, max_by, min, struct
+from pyspark.sql.functions import col, current_timestamp, lit, max, max_by, min, struct
 
-from common import get_spark
+from common import get_spark, load_impact_scope, processing_arguments
 
 
 def transform_teams(games_df: DataFrame) -> DataFrame:
@@ -57,11 +57,42 @@ def transform_teams(games_df: DataFrame) -> DataFrame:
     return teams.withColumn("ingested_at", current_timestamp())
 
 
+def merge_teams(existing: DataFrame, refreshed: DataFrame) -> DataFrame:
+    """Merge a bounded game projection into the small teams dimension."""
+
+    combined = existing.select(refreshed.columns).withColumn("_merge_rank", lit(0)).unionByName(
+        refreshed.withColumn("_merge_rank", lit(1))
+    )
+    sort_key = struct(col("last_seen_date"), col("_merge_rank"))
+    return combined.groupBy("team_id").agg(
+        max_by(col("abbrev"), sort_key).alias("abbrev"),
+        max_by(col("name"), sort_key).alias("name"),
+        min("first_seen_date").alias("first_seen_date"),
+        max("last_seen_date").alias("last_seen_date"),
+    ).withColumn("ingested_at", current_timestamp())
+
+
 def main() -> None:
     spark = get_spark("silver-teams")
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
 
     games = spark.read.table("nhl.silver.games")
-    teams = transform_teams(games)
+    if scope is not None:
+        if not scope.pbp_game_ids:
+            print("silver.teams: no refreshed PBP games; nothing to write")
+            return
+        games = games.where(col("game_id").isin(scope.pbp_game_ids))
+
+    refreshed = transform_teams(games)
+    if scope is None or not spark.catalog.tableExists("nhl.silver.teams"):
+        teams = refreshed
+    else:
+        teams = merge_teams(spark.read.table("nhl.silver.teams"), refreshed)
 
     teams.coalesce(1).writeTo("nhl.silver.teams").createOrReplace()
 

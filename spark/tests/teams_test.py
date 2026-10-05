@@ -18,7 +18,7 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from teams import transform_teams
+from teams import merge_teams, transform_teams
 
 GAMES_SCHEMA = StructType(
     [
@@ -109,3 +109,12 @@ def test_single_appearance_team_collapses_dates(spark):
     wpg = by_id[52]
     assert wpg.first_seen_date == datetime.date(2024, 10, 8)
     assert wpg.last_seen_date == datetime.date(2024, 10, 8)
+
+
+def test_incremental_merge_preserves_unaffected_teams(spark):
+    all_teams = transform_teams(_games(spark))
+    refreshed = all_teams.filter("team_id = 26")
+
+    merged = merge_teams(all_teams, refreshed)
+    assert merged.count() == all_teams.count()
+    assert _by_team(merged)[52].abbrev == "WPG"

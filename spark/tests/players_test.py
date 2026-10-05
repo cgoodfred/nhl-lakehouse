@@ -6,7 +6,7 @@ exercise the cross-game dedup and the max_by latest-value semantics.
 
 import datetime
 
-from players import PLAYERS_SCHEMA, transform_players
+from players import PLAYERS_SCHEMA, merge_players, transform_players
 
 
 def _load_raw(spark, fixtures_dir):
@@ -103,3 +103,12 @@ def test_same_date_tie_break_by_game_id(spark, fixtures_dir):
     assert kopitar.position_code == "C"
     assert kopitar.first_seen_date == datetime.date(2024, 10, 25)
     assert kopitar.last_seen_date == datetime.date(2024, 10, 25)
+
+
+def test_incremental_merge_preserves_unaffected_players(spark, fixtures_dir):
+    all_players = transform_players(_load_raw(spark, fixtures_dir))
+    refreshed = all_players.filter("player_id = 8480113")
+
+    merged = merge_players(all_players, refreshed)
+    assert merged.count() == all_players.count()
+    assert _by_player(merged)[8475311].first_seen_date == datetime.date(2024, 10, 8)

@@ -60,7 +60,13 @@ Each generated SparkApplication is stamped with labels for cleanup + debugging: 
 
 ### `templates/silver-full-rebuild.yaml`
 
-DAG WorkflowTemplate that rebuilds the core PBP silver tier — `silver-games` runs first, then `silver-plays`, `silver-players`, `silver-game-rosters`, and `silver-teams` fan out in parallel (each depending only on `silver-games`). `silver-teams` was verified against `spark/jobs/silver/teams.py` to read only from `silver.games`, so it belongs in the fan-out, not as a terminal sequential step.
+DAG WorkflowTemplate that processes the core PBP silver tier — `silver-games`
+runs first, then `silver-plays`, `silver-players`, `silver-game-rosters`, and
+`silver-teams` fan out in parallel (each depending only on `silver-games`).
+Scheduled callers pass the impact manifest and run these jobs incrementally;
+manual full rebuild callers pass `processing_mode=full`. `silver-teams` was
+verified against `spark/jobs/silver/teams.py` to read only from `silver.games`,
+so it belongs in the fan-out, not as a terminal sequential step.
 
 **Does NOT include `silver-tracking-frames`.** That table sits in a separate pipeline branch (`bronze-tracking-ingest` → `silver-tracking-frames` → gold tracking tables) whose upstream is the Python PPT bronze fetch, not the Go PBP ingest. That branch gets its own DAG in V2 alongside converting `bronze-tracking-ingest` to a WorkflowTemplate.
 
