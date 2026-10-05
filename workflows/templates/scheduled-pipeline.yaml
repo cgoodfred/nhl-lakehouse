@@ -63,6 +63,7 @@ spec:
               parameters:
                 - {name: retry_transient, value: "{{workflow.parameters.retry_tracking_transient}}"}
                 - {name: season, value: "{{workflow.parameters.tracking_season}}"}
+                - {name: impact_manifest_key, value: "_runs/run={{workflow.name}}/impact.json"}
 
           - name: silver-tracking-frames
             dependencies: [tracking-ingest]

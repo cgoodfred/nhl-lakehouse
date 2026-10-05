@@ -71,7 +71,7 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
-from common import get_spark
+from common import get_spark, load_impact_scope
 
 BRONZE_BUCKET = "nhl-bronze"
 BRONZE_PREFIX = "tracking"
@@ -324,7 +324,7 @@ def _read_existing(spark: SparkSession) -> DataFrame | None:
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
-def _read_goals(spark: SparkSession, season: int | None) -> DataFrame:
+def _read_goals(spark: SparkSession, season: int | None, game_ids: list[int] | None = None) -> DataFrame:
     """Goals with a tracking URL in silver.plays, optionally filtered to one
     season for staged backfill (CDN load + wall-clock pacing). NHL season
     codes are start-year + end-year with no separator, e.g. 20252026 for the
@@ -336,6 +336,8 @@ def _read_goals(spark: SparkSession, season: int | None) -> DataFrame:
     )
     if season is not None:
         df = df.where(col("season") == season)
+    if game_ids is not None:
+        df = df.where(col("game_id").isin(game_ids))
     return df
 
 
@@ -380,6 +382,10 @@ def main():
     retry_transient = spark.conf.get("spark.tracking.retry_transient", "false").lower() == "true"
     season_raw = spark.conf.get("spark.tracking.season", "").strip()
     season = int(season_raw) if season_raw else None
+    impact_key = spark.conf.get("spark.tracking.impact_manifest_key", "").strip()
+    impact_game_ids = None
+    if impact_key:
+        impact_game_ids = load_impact_scope(spark, impact_key).pbp_game_ids
     rate_per_sec = float(spark.conf.get("spark.tracking.rate_per_sec", str(DEFAULT_RATE_PER_SEC)))
     burst = int(spark.conf.get("spark.tracking.burst", str(DEFAULT_BURST)))
     max_retries = int(spark.conf.get("spark.tracking.max_retries", str(DEFAULT_MAX_RETRIES)))
@@ -387,12 +393,13 @@ def main():
     flush_every = int(spark.conf.get("spark.tracking.flush_every", str(DEFAULT_FLUSH_EVERY)))
 
     existing = _read_existing(spark)
-    goals = _read_goals(spark, season)
+    goals = _read_goals(spark, season, impact_game_ids)
     to_fetch = candidates(existing, goals, retry_transient).collect()
 
     print(
         f"bronze-tracking-ingest: retry_transient={retry_transient}, "
         f"season={season or 'all'}, "
+        f"impact_manifest={impact_key or 'all'}, "
         f"rate={rate_per_sec}/s burst={burst} max_retries={max_retries} "
         f"timeout={timeout_sec}s, flush_every={flush_every}, "
         f"candidates={len(to_fetch)}"
