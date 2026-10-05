@@ -68,7 +68,12 @@ manual full rebuild callers pass `processing_mode=full`. `silver-teams` was
 verified against `spark/jobs/silver/teams.py` to read only from `silver.games`,
 so it belongs in the fan-out, not as a terminal sequential step.
 
-**Does NOT include `silver-tracking-frames`.** That table sits in a separate pipeline branch (`bronze-tracking-ingest` → `silver-tracking-frames` → gold tracking tables) whose upstream is the Python PPT bronze fetch, not the Go PBP ingest. That branch gets its own DAG in V2 alongside converting `bronze-tracking-ingest` to a WorkflowTemplate.
+`silver-tracking-frames` remains a separate dependency branch
+(`bronze-tracking-ingest` → `silver-tracking-frames` → gold tracking tables),
+but the scheduled pipeline invokes it after tracking ingest with the same
+impact manifest. It now reads only the affected game partitions and performs
+an incremental game-scoped replacement; explicit full callers can still pass
+`processing_mode=full`.
 
 Per-node executor sizing mirrors the existing `spark/k8s/silver/*.yaml` manifests exactly (games/plays at 2g, players/game_rosters/teams at 1g). `parallelism: 1` serializes the DAG because the naive CPU math missed two costs — each Argo `resource:` step costs ~500m CPU on its own polling pod, and Spark Operator leaves completed driver pods around hoarding quota. First real run of the DAG (silver-full-rebuild-8dzkl) hit `SubmissionFailed` on players AND teams because their drivers requested 2c against a 9300m-used quota. The template header comment shows the corrected CPU accounting. Bump back to 2+ once the Pi quota widens or driver sizes shrink.
 

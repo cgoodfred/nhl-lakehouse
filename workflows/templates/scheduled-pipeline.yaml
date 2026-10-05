@@ -77,6 +77,8 @@ spec:
                 - {name: executor_core_limit, value: "1"}
                 - {name: executor_instances, value: "1"}
                 - {name: executor_memory, value: 2g}
+                - {name: processing_mode, value: incremental}
+                - {name: impact_manifest_key, value: "_runs/run={{workflow.name}}/impact.json"}
 
           - name: gold-player-shots
             dependencies: [silver-shifts]

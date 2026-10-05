@@ -94,9 +94,9 @@ All gold jobs depend on the silver layer being populated.
 
 ## Incremental silver mode
 
-The `games`, `plays`, `players`, `game_rosters`, `teams`, and `shifts` jobs
-accept an explicit incremental scope while retaining full rebuild as the
-default:
+The `games`, `plays`, `players`, `game_rosters`, `teams`, `shifts`, and
+`tracking_frames` jobs accept an explicit incremental scope while retaining
+full rebuild as the default:
 
 ```text
 --processing-mode incremental \\
@@ -108,8 +108,10 @@ tables, each affected game is deleted from the target Iceberg table and
 replaced with rows parsed from its refreshed bronze object. The player and
 team dimensions instead merge the bounded refreshed projection with their
 small existing dimension, preserving first/last-seen dates and latest known
-attributes. Incremental is the default for scheduled callers; a full rebuild
-passes `--processing-mode full` explicitly.
+attributes. Tracking frames build partition-pruned bronze paths for the
+affected game IDs, then replace only those games in the target table.
+Incremental is the default for scheduled callers; a full rebuild passes
+`--processing-mode full` explicitly.
 
 ## Tests
 
