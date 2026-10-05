@@ -331,7 +331,9 @@ def _read_existing(spark: SparkSession) -> DataFrame | None:
     return spark.read.table("nhl.silver.tracking_attempts")
 
 
-def _read_goals(spark: SparkSession, season: int | None, game_ids: list[int] | None = None) -> DataFrame:
+def _read_goals(
+    spark: SparkSession, season: int | None, game_ids: list[int] | None = None
+) -> DataFrame:
     """Goals with a tracking URL in silver.plays, optionally filtered to one
     season for staged backfill (CDN load + wall-clock pacing). NHL season
     codes are start-year + end-year with no separator, e.g. 20252026 for the
