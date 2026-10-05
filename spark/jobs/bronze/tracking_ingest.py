@@ -35,6 +35,12 @@ Design notes:
     in-request retries. Persistent 429 falls through to status='http_other'
     so the next job run with --retry-transient can pick it up.
 
+  * Scheduled runs pass the ingest impact manifest via
+    `spark.tracking.impact_manifest_key`. When set, only goals from games
+    whose PBP was refreshed in that run are considered. Leaving it empty is
+    an explicit full-season/backfill mode; transient retries are still limited
+    to the selected scope.
+
   * Python 3.8 in the apache/spark:3.5.7-python3 base image: NO `X | None`,
     `datetime.UTC`, or `list[T]` runtime expressions. We use
     `from __future__ import annotations` to keep modern syntax in TYPE hints
@@ -43,6 +49,7 @@ Design notes:
 Knobs (sparkConf):
   - spark.tracking.retry_transient   bool,  default false
   - spark.tracking.season            str,   default ""    (empty = all seasons)
+  - spark.tracking.impact_manifest_key str, default ""   (empty = all games)
   - spark.tracking.rate_per_sec      float, default 2.0
   - spark.tracking.burst             int,   default 5
   - spark.tracking.max_retries       int,   default 6  (in-request 429 retries)
