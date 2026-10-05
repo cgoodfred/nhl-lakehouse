@@ -12,6 +12,7 @@ spec:
         parameters:
           - {name: retry_transient, value: "true"}
           - {name: season, value: ""}
+          - {name: impact_manifest_key, value: ""}
       resource:
         action: create
         successCondition: status.applicationState.state == COMPLETED
@@ -87,6 +88,7 @@ spec:
               spark.dynamicAllocation.enabled: "false"
               spark.tracking.retry_transient: "{{inputs.parameters.retry_transient}}"
               spark.tracking.season: "{{inputs.parameters.season}}"
+              spark.tracking.impact_manifest_key: "{{inputs.parameters.impact_manifest_key}}"
               spark.tracking.rate_per_sec: "2.0"
               spark.tracking.burst: "5"
               spark.tracking.max_retries: "6"
