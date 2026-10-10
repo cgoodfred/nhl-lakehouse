@@ -21,7 +21,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
       "id": 2,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (phase) (increase(argo_workflows_total_count{namespace=\"lakehouse\"}[24h]))", "legendFormat": "{{phase}}", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum by (phase) (increase(argo_workflows_total_count{namespace=~\"$namespace\"}[24h]))", "legendFormat": "{{phase}}", "range": true, "refId": "A" }],
       "title": "Workflow outcomes (24h)",
       "type": "timeseries"
     },
@@ -51,7 +51,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 5,
       "options": { "legend": { "calcs": ["mean", "lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, name) (rate(argo_workflows_workflowtemplate_runtime_bucket{namespace=\"lakehouse\"}[15m])))", "legendFormat": "{{name}} p95", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, name) (rate(argo_workflows_workflowtemplate_runtime_bucket{namespace=~\"$namespace\"}[15m])))", "legendFormat": "{{name}} p95", "range": true, "refId": "A" }],
       "title": "WorkflowTemplate runtime p95",
       "type": "timeseries"
     },
@@ -61,7 +61,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 6,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_workflowtemplate_triggered_total{namespace=\"lakehouse\",name=\"scheduled-pipeline\",phase=\"New\"}[24h]))", "legendFormat": "Pipeline starts", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_workflowtemplate_triggered_total{namespace=~\"$namespace\",name=\"scheduled-pipeline\",phase=\"New\"}[24h]))", "legendFormat": "Pipeline starts", "range": true, "refId": "A" }],
       "title": "Pipeline starts (24h)",
       "type": "timeseries"
     },
@@ -80,7 +80,7 @@
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 24 },
       "id": 8,
       "options": { "dedupStrategy": "none", "enableInfiniteScrolling": false, "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
-      "targets": [{ "editorMode": "code", "expr": "{k8s_namespace_name=\"lakehouse\"} |~ \"(?i)(error|failed|exception|oomkilled|panic)\"", "queryType": "range", "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "{k8s_namespace_name=~\"$namespace\"} |~ \"(?i)(error|failed|exception|oomkilled|panic)\"", "queryType": "range", "refId": "A" }],
       "title": "Lakehouse pipeline errors",
       "type": "logs"
     },
@@ -90,7 +90,7 @@
       "gridPos": { "h": 5, "w": 8, "x": 16, "y": 24 },
       "id": 9,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_error_count{namespace=\"lakehouse\"}[1h]))", "legendFormat": "Controller errors", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_error_count{namespace=~\"$namespace\"}[1h]))", "legendFormat": "Controller errors", "range": true, "refId": "A" }],
       "title": "Argo controller errors (1h)",
       "type": "stat"
     },
@@ -115,6 +115,7 @@
   "refresh": "30s",
   "schemaVersion": 41,
   "tags": ["nhl-lakehouse", "argo", "pipelines"],
+  "templating": { "list": [{ "allValue": ".+", "current": { "text": "lakehouse", "value": "lakehouse" }, "datasource": { "type": "prometheus", "uid": "mimir" }, "definition": "label_values(argo_workflows_total_count,namespace)", "includeAll": true, "label": "Namespace", "name": "namespace", "options": [], "query": "label_values(argo_workflows_total_count,namespace)", "refresh": 1, "regex": "", "sort": 1, "type": "query" }] },
   "time": { "from": "now-24h", "to": "now" },
   "timezone": "browser",
   "title": "NHL Lakehouse Pipeline",
