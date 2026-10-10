@@ -115,7 +115,7 @@
   "refresh": "30s",
   "schemaVersion": 41,
   "tags": ["nhl-lakehouse", "argo", "pipelines"],
-  "templating": { "list": [{ "allValue": ".+", "current": { "text": "lakehouse", "value": "lakehouse" }, "datasource": { "type": "prometheus", "uid": "mimir" }, "definition": "label_values(argo_workflows_total_count,namespace)", "includeAll": true, "label": "Namespace", "name": "namespace", "options": [], "query": "label_values(argo_workflows_total_count,namespace)", "refresh": 1, "regex": "", "sort": 1, "type": "query" }] },
+  "templating": { "list": [{ "allValue": ".+", "current": { "text": "lakehouse", "value": "lakehouse" }, "includeAll": true, "label": "Namespace", "name": "namespace", "options": [{ "selected": true, "text": "lakehouse", "value": "lakehouse" }], "query": "lakehouse", "refresh": 1, "regex": "", "sort": 1, "type": "custom" }] },
   "time": { "from": "now-24h", "to": "now" },
   "timezone": "browser",
   "title": "NHL Lakehouse Pipeline",
