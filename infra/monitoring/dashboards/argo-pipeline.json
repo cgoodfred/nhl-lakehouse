@@ -8,11 +8,11 @@
     {
       "datasource": { "type": "prometheus", "uid": "mimir" },
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
       "id": 1,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(argo_workflows_workflow_condition{namespace=\"lakehouse\",condition=\"Failed\",status=\"true\"})", "legendFormat": "Failed workflows", "range": true, "refId": "A" }],
-      "title": "Failed workflows",
+      "targets": [{ "editorMode": "code", "expr": "argo_workflows_gauge{status=\"Failed\"}", "legendFormat": "Retained failed workflows", "range": true, "refId": "A" }],
+      "title": "Currently failed workflows",
       "type": "stat"
     },
     {
@@ -21,8 +21,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
       "id": 2,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (condition) (argo_workflows_workflow_condition{namespace=\"lakehouse\",status=\"true\"})", "legendFormat": "{{condition}}", "range": true, "refId": "A" }],
-      "title": "Workflow conditions",
+      "targets": [{ "editorMode": "code", "expr": "sum by (phase) (increase(argo_workflows_total_count{namespace=\"lakehouse\"}[24h]))", "legendFormat": "{{phase}}", "range": true, "refId": "A" }],
+      "title": "Workflow outcomes (24h)",
       "type": "timeseries"
     },
     {
@@ -31,7 +31,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
       "id": 3,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "argo_workflows_queue_depth_gauge", "legendFormat": "Queue depth", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(argo_workflows_queue_depth_gauge)", "legendFormat": "Queue depth", "range": true, "refId": "A" }],
       "title": "Argo queue depth",
       "type": "stat"
     },
@@ -41,8 +41,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 4,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "argo_workflows_workers_busy_count", "legendFormat": "Busy workers", "range": true, "refId": "A" }, { "editorMode": "code", "expr": "argo_workflows_operation_duration_seconds_sum", "legendFormat": "Controller operation duration", "range": true, "refId": "B" }],
-      "title": "Argo controller activity",
+      "targets": [{ "editorMode": "code", "expr": "sum(argo_workflows_workers_busy_count)", "legendFormat": "Busy workers", "range": true, "refId": "A" }],
+      "title": "Argo controller busy workers",
       "type": "timeseries"
     },
     {
@@ -51,8 +51,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 5,
       "options": { "legend": { "calcs": ["mean", "lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "argo_workflows_workflowtemplate_runtime{namespace=\"lakehouse\"}", "legendFormat": "{{name}}", "range": true, "refId": "A" }],
-      "title": "WorkflowTemplate runtime",
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, name) (rate(argo_workflows_workflowtemplate_runtime_bucket{namespace=\"lakehouse\"}[15m])))", "legendFormat": "{{name}} p95", "range": true, "refId": "A" }],
+      "title": "WorkflowTemplate runtime p95",
       "type": "timeseries"
     },
     {
@@ -61,8 +61,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 6,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (name) (rate(argo_workflows_cronworkflows_triggered_total{namespace=\"lakehouse\"}[1h]))", "legendFormat": "{{name}}", "range": true, "refId": "A" }],
-      "title": "CronWorkflow trigger rate",
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_workflowtemplate_triggered_total{namespace=\"lakehouse\",name=\"scheduled-pipeline\",phase=\"New\"}[24h]))", "legendFormat": "Pipeline starts", "range": true, "refId": "A" }],
+      "title": "Pipeline starts (24h)",
       "type": "timeseries"
     },
     {
@@ -80,8 +80,8 @@
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 24 },
       "id": 8,
       "options": { "dedupStrategy": "none", "enableInfiniteScrolling": false, "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
-      "targets": [{ "editorMode": "code", "expr": "{k8s_namespace_name=\"lakehouse\"} |~ \"(?i)(argo|spark|ingest|failed|error|complete)\"", "queryType": "range", "refId": "A" }],
-      "title": "Lakehouse pipeline logs",
+      "targets": [{ "editorMode": "code", "expr": "{k8s_namespace_name=\"lakehouse\"} |~ \"(?i)(error|failed|exception|oomkilled|panic)\"", "queryType": "range", "refId": "A" }],
+      "title": "Lakehouse pipeline errors",
       "type": "logs"
     },
     {
@@ -93,6 +93,16 @@
       "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_error_count{namespace=\"lakehouse\"}[1h]))", "legendFormat": "Controller errors", "range": true, "refId": "A" }],
       "title": "Argo controller errors (1h)",
       "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 1, "showPoints": "never" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 16, "x": 0, "y": 29 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "rate(argo_workflows_operation_duration_seconds_sum[5m]) / rate(argo_workflows_operation_duration_seconds_count[5m])", "legendFormat": "Average reconciliation duration", "range": true, "refId": "A" }],
+      "title": "Argo reconciliation duration",
+      "type": "timeseries"
     },
     {
       "gridPos": { "h": 5, "w": 8, "x": 16, "y": 29 },
