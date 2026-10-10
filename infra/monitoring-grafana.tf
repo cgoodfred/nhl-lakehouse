@@ -7,6 +7,7 @@ resource "kubernetes_config_map" "monitoring_grafana_dashboards" {
 
   data = {
     "cluster-overview.json" = file("${path.module}/monitoring/dashboards/cluster-overview.json")
+    "argo-pipeline.json"    = file("${path.module}/monitoring/dashboards/argo-pipeline.json")
   }
 }
 
