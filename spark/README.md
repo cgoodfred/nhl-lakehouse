@@ -94,18 +94,23 @@ All gold jobs depend on the silver layer being populated.
 
 ## Incremental silver mode
 
-The `games`, `plays`, `game_rosters`, and `shifts` jobs accept an explicit
-incremental scope while retaining full rebuild as the default:
+The `games`, `plays`, `players`, `game_rosters`, `teams`, `shifts`, and
+`tracking_frames` jobs accept an explicit incremental scope while retaining
+full rebuild as the default:
 
 ```text
 --processing-mode incremental \\
 --impact-manifest-key _runs/run=<runID>/impact.json
 ```
 
-The manifest is read from the `nhl-bronze` S3 bucket. Each affected game is
-deleted from the target Iceberg table and replaced with rows parsed from its
-refreshed bronze object, so corrected or removed source rows do not remain
-stale. Incremental is the default for these four jobs; a full rebuild passes
+The manifest is read from the `nhl-bronze` S3 bucket. For game-keyed fact
+tables, each affected game is deleted from the target Iceberg table and
+replaced with rows parsed from its refreshed bronze object. The player and
+team dimensions instead merge the bounded refreshed projection with their
+small existing dimension, preserving first/last-seen dates and latest known
+attributes. Tracking frames build partition-pruned bronze paths for the
+affected game IDs, then replace only those games in the target table.
+Incremental is the default for scheduled callers; a full rebuild passes
 `--processing-mode full` explicitly.
 
 ## Tests

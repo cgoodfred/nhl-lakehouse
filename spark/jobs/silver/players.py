@@ -17,6 +17,7 @@ from pyspark.sql.functions import (
     col,
     current_timestamp,
     explode,
+    lit,
     max,
     max_by,
     min,
@@ -32,7 +33,7 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from common import get_spark
+from common import get_spark, load_impact_scope, processing_arguments, source_paths
 
 BRONZE_PATH = "s3a://nhl-bronze/play-by-play/season=*/date=*/game_*.json"
 BRONZE_BASE = "s3a://nhl-bronze/play-by-play"
@@ -92,12 +93,50 @@ def transform_players(raw_df: DataFrame) -> DataFrame:
     return players.withColumn("ingested_at", current_timestamp())
 
 
+def merge_players(existing: DataFrame, refreshed: DataFrame) -> DataFrame:
+    """Merge refreshed player observations into the small player dimension.
+
+    The dimension is keyed by player_id rather than game_id, so the generic
+    game-scoped DELETE + APPEND helper cannot be used. Combining the existing
+    dimension with the bounded refreshed projection preserves first/last-seen
+    dates and lets the newest observation win for descriptive attributes.
+    """
+
+    combined = existing.select(refreshed.columns).withColumn("_merge_rank", lit(0)).unionByName(
+        refreshed.withColumn("_merge_rank", lit(1))
+    )
+    sort_key = struct(col("last_seen_date"), col("_merge_rank"))
+    return combined.groupBy("player_id").agg(
+        max_by(col("first_name"), sort_key).alias("first_name"),
+        max_by(col("last_name"), sort_key).alias("last_name"),
+        max_by(col("position_code"), sort_key).alias("position_code"),
+        max_by(col("headshot"), sort_key).alias("headshot"),
+        min("first_seen_date").alias("first_seen_date"),
+        max("last_seen_date").alias("last_seen_date"),
+    ).withColumn("ingested_at", current_timestamp())
+
+
 def main() -> None:
     spark = get_spark("silver-players")
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
+    paths = source_paths(scope, BRONZE_PATH, "pbp")
+    if not paths:
+        print("silver.players: no refreshed PBP objects; nothing to write")
+        return
 
-    raw = spark.read.schema(PLAYERS_SCHEMA).option("basePath", BRONZE_BASE).json(BRONZE_PATH)
+    raw = spark.read.schema(PLAYERS_SCHEMA).option("basePath", BRONZE_BASE).json(paths)
 
-    players = transform_players(raw)
+    refreshed = transform_players(raw)
+
+    if scope is None or not spark.catalog.tableExists("nhl.silver.players"):
+        players = refreshed
+    else:
+        players = merge_players(spark.read.table("nhl.silver.players"), refreshed)
 
     players.coalesce(1).writeTo("nhl.silver.players").createOrReplace()
 

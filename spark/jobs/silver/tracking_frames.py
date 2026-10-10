@@ -24,6 +24,10 @@ Silver schema:
   - rel_seconds: (timeStamp - max(timeStamp) over goal) / 10.0; deciseconds
     is the verified feed unit. Last frame is 0.0; everything else is negative.
 
+Scheduled runs receive the ingest impact manifest and read only tracking
+partitions for its refreshed game IDs. Full-table replacement remains
+available through explicit full processing mode for backfills.
+
 Python 3.8 in the apache/spark:3.5.7-python3 base image: see tracking_ingest
 for the same constraints (no `X | None` runtime exprs, no `datetime.UTC`).
 """
@@ -51,10 +55,19 @@ from pyspark.sql.types import (
 )
 from pyspark.sql.window import Window
 
-from common import get_spark
+from common import get_spark, load_impact_scope, processing_arguments, write_incremental
 
 BRONZE_PATH = "s3a://nhl-bronze/tracking"
 BRONZE_GLOB = f"{BRONZE_PATH}/season=*/game_id=*/event_id=*/tracking.json"
+
+
+def tracking_paths(game_ids: list[int]) -> list[str]:
+    """Build partition-pruned tracking paths for the affected games."""
+
+    return [
+        f"{BRONZE_PATH}/season=*/game_id={game_id}/event_id=*/tracking.json"
+        for game_id in game_ids
+    ]
 
 # NHL PPT coordinate system: tracking inches with origin at the corner.
 # Rink is 2400x1020 inches → 200x85 feet. Convert to PBP feet (center origin)
@@ -153,17 +166,30 @@ def transform_tracking_frames(raw: DataFrame) -> DataFrame:
 
 def main() -> None:
     spark = get_spark("silver-tracking-frames")
+    args = processing_arguments()
+    scope = (
+        None
+        if args.processing_mode == "full"
+        else load_impact_scope(spark, args.impact_manifest_key)
+    )
+    if scope is not None and not scope.pbp_game_ids:
+        print("silver.tracking_frames: no refreshed PBP games; nothing to write")
+        return
+    paths = BRONZE_GLOB if scope is None else tracking_paths(scope.pbp_game_ids)
 
     raw = (
         spark.read.option("multiLine", "true")
         .option("basePath", BRONZE_PATH)  # not a .json() kwarg in PySpark
         .schema(BRONZE_FRAME_SCHEMA)
-        .json(BRONZE_GLOB)
+        .json(paths)
     )
 
     out = transform_tracking_frames(raw)
 
-    out.writeTo("nhl.silver.tracking_frames").partitionedBy("season").createOrReplace()
+    if scope is None:
+        out.writeTo("nhl.silver.tracking_frames").partitionedBy("season").createOrReplace()
+    else:
+        write_incremental(spark, "nhl.silver.tracking_frames", out, scope.pbp_game_ids)
 
     written = spark.read.table("nhl.silver.tracking_frames").count()
     print(f"silver-tracking-frames: complete (rows={written})")

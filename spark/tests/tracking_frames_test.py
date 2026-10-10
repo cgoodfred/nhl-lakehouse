@@ -16,6 +16,7 @@ from tracking_frames import (
     PPT_CENTER_X_IN,
     PPT_CENTER_Y_IN,
     PPT_INCHES_PER_FT,
+    tracking_paths,
     transform_tracking_frames,
 )
 
@@ -26,6 +27,14 @@ from tracking_frames import (
 _FAKE_SEASON = 20242025
 _FAKE_GAME_ID = 2024020001
 _FAKE_EVENT_ID = 274
+
+
+def test_tracking_paths_are_partition_pruned():
+    paths = tracking_paths([2024020001, 2024020002])
+    assert paths == [
+        "s3a://nhl-bronze/tracking/season=*/game_id=2024020001/event_id=*/tracking.json",
+        "s3a://nhl-bronze/tracking/season=*/game_id=2024020002/event_id=*/tracking.json",
+    ]
 
 
 def _load_fixture(spark, fixtures_dir):
