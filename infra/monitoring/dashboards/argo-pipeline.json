@@ -97,7 +97,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "mimir" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 1, "showPoints": "never" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 5, "w": 16, "x": 0, "y": 29 },
+      "gridPos": { "h": 5, "w": 16, "x": 0, "y": 33 },
       "id": 11,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [{ "editorMode": "code", "expr": "rate(argo_workflows_operation_duration_seconds_sum[5m]) / rate(argo_workflows_operation_duration_seconds_count[5m])", "legendFormat": "Average reconciliation duration", "range": true, "refId": "A" }],
