@@ -246,6 +246,8 @@ locals {
                   regex         = "true"
                 },
                 {
+                  # Argo's controller metrics use HTTPS with a localhost-only
+                  # certificate; scrape them through the dedicated job below.
                   action        = "drop"
                   source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
                   regex         = "argo-workflows-workflow-controller"
@@ -296,8 +298,10 @@ locals {
               scrape_interval = "30s"
               scheme          = "https"
               tls_config = {
-                # The chart's controller certificate is trusted by the Argo
-                # service but has no pod-IP SAN. This job targets pod IPs.
+                # The chart's controller certificate currently has only a
+                # localhost SAN, while discovery targets the pod IP.
+                # This is an internal metrics-only endpoint; keep the bypass
+                # scoped to this one scrape job.
                 insecure_skip_verify = true
               }
               kubernetes_sd_configs = [{
