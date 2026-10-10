@@ -71,8 +71,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "id": 7,
       "options": { "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"lakehouse\",container!=\"\",container!=\"POD\"}[5m])) / on (pod) group_left sum by (pod) (kube_pod_container_resource_limits{namespace=\"lakehouse\",resource=\"cpu\"})", "legendFormat": "{{pod}}", "range": true, "refId": "A" }],
-      "title": "Lakehouse pod CPU versus limit",
+      "targets": [{ "editorMode": "code", "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Cluster CPU utilization during pipeline",
       "type": "timeseries"
     },
     {
@@ -95,7 +95,6 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "text", "uid": "-100" },
       "gridPos": { "h": 5, "w": 8, "x": 16, "y": 29 },
       "id": 10,
       "options": { "content": "Use the Argo UI for the exact live DAG, node timing, parameters, retries, and pod logs.\n\n```bash\nkubectl -n lakehouse port-forward svc/argo-workflows-server 2746:2746\n```\n\nThen open [http://localhost:2746](http://localhost:2746).", "mode": "markdown" },
