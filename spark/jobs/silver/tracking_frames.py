@@ -25,8 +25,9 @@ Silver schema:
     is the verified feed unit. Last frame is 0.0; everything else is negative.
 
 Scheduled runs receive the ingest impact manifest and read only tracking
-partitions for its refreshed game IDs. Full-table replacement remains
-available through explicit full processing mode for backfills.
+objects successfully written for its refreshed game IDs. Full-table
+replacement remains available through explicit full processing mode for
+backfills.
 
 Python 3.8 in the apache/spark:3.5.7-python3 base image: see tracking_ingest
 for the same constraints (no `X | None` runtime exprs, no `datetime.UTC`).
@@ -68,6 +69,32 @@ def tracking_paths(game_ids: list[int]) -> list[str]:
         f"{BRONZE_PATH}/season=*/game_id={game_id}/event_id=*/tracking.json"
         for game_id in game_ids
     ]
+
+
+def refreshed_tracking_paths(spark, game_ids: list[int]) -> list[str]:
+    """Return only tracking objects successfully written by tracking-ingest.
+
+    PBP refreshes can include preseason games or goals without a tracking URL.
+    Those games are valid inputs for the rest of the pipeline but have no
+    tracking object to read. The attempts table is the authoritative bridge
+    between per-event fetch outcomes and bronze object keys.
+    """
+
+    if not game_ids or not spark.catalog.tableExists("nhl.silver.tracking_attempts"):
+        return []
+    rows = (
+        spark.read.table("nhl.silver.tracking_attempts")
+        .where(
+            col("game_id").isin(game_ids)
+            & (col("status") == "success")
+            & col("source_object_key").isNotNull()
+        )
+        .select("source_object_key")
+        .distinct()
+        .collect()
+    )
+    return ["s3a://nhl-bronze/" + row.source_object_key for row in rows]
+
 
 # NHL PPT coordinate system: tracking inches with origin at the corner.
 # Rink is 2400x1020 inches → 200x85 feet. Convert to PBP feet (center origin)
@@ -175,7 +202,14 @@ def main() -> None:
     if scope is not None and not scope.pbp_game_ids:
         print("silver.tracking_frames: no refreshed PBP games; nothing to write")
         return
-    paths = BRONZE_GLOB if scope is None else tracking_paths(scope.pbp_game_ids)
+    paths = (
+        BRONZE_GLOB
+        if scope is None
+        else refreshed_tracking_paths(spark, scope.pbp_game_ids)
+    )
+    if scope is not None and not paths:
+        print("silver.tracking_frames: no successful tracking objects; nothing to write")
+        return
 
     raw = (
         spark.read.option("multiLine", "true")
