@@ -8,6 +8,7 @@ are empty strings, not nulls, which would crash a naive int cast).
 """
 
 import math
+from types import SimpleNamespace
 
 from pyspark.sql.functions import lit
 
@@ -16,7 +17,7 @@ from tracking_frames import (
     PPT_CENTER_X_IN,
     PPT_CENTER_Y_IN,
     PPT_INCHES_PER_FT,
-    tracking_paths,
+    refreshed_tracking_paths,
     transform_tracking_frames,
 )
 
@@ -29,12 +30,49 @@ _FAKE_GAME_ID = 2024020001
 _FAKE_EVENT_ID = 274
 
 
-def test_tracking_paths_are_partition_pruned():
-    paths = tracking_paths([2024020001, 2024020002])
-    assert paths == [
-        "s3a://nhl-bronze/tracking/season=*/game_id=2024020001/event_id=*/tracking.json",
-        "s3a://nhl-bronze/tracking/season=*/game_id=2024020002/event_id=*/tracking.json",
+def test_refreshed_tracking_paths_returns_only_successful_objects(spark):
+    attempts = spark.createDataFrame(
+        [
+            (
+                2024020001,
+                "success",
+                "tracking/season=20242025/game_id=2024020001/event_id=1/tracking.json",
+            ),
+            (2024020001, "http_404", None),
+            (2024020001, "fetch_error", None),
+            (
+                2024020002,
+                "success",
+                "tracking/season=20242025/game_id=2024020002/event_id=2/tracking.json",
+            ),
+        ],
+        ["game_id", "status", "source_object_key"],
+    )
+    fake_spark = SimpleNamespace(
+        catalog=SimpleNamespace(tableExists=lambda _: True),
+        read=SimpleNamespace(table=lambda _: attempts),
+    )
+
+    assert refreshed_tracking_paths(fake_spark, [2024020001]) == [
+        "s3a://nhl-bronze/tracking/season=20242025/game_id=2024020001/event_id=1/tracking.json"
     ]
+
+
+def test_refreshed_tracking_paths_returns_empty_without_attempts_table():
+    fake_spark = SimpleNamespace(
+        catalog=SimpleNamespace(tableExists=lambda _: False),
+        read=SimpleNamespace(table=lambda _: (_ for _ in ()).throw(AssertionError())),
+    )
+
+    assert refreshed_tracking_paths(fake_spark, [2024020001]) == []
+
+
+def test_refreshed_tracking_paths_returns_empty_for_empty_scope():
+    fake_spark = SimpleNamespace(
+        catalog=SimpleNamespace(tableExists=lambda _: (_ for _ in ()).throw(AssertionError())),
+    )
+
+    assert refreshed_tracking_paths(fake_spark, []) == []
 
 
 def _load_fixture(spark, fixtures_dir):
