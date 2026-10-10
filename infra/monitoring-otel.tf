@@ -246,6 +246,13 @@ locals {
                   regex         = "true"
                 },
                 {
+                  # Argo's controller metrics use HTTPS with a localhost-only
+                  # certificate; scrape them through the dedicated job below.
+                  action        = "drop"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "argo-workflows-workflow-controller"
+                },
+                {
                   action        = "replace"
                   source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
                   target_label  = "__metrics_path__"
@@ -256,6 +263,66 @@ locals {
                   source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scheme"]
                   target_label  = "__scheme__"
                   regex         = "(https?)"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+                  target_label  = "__address__"
+                  regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+                  replacement   = "$1:$2"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "node"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  target_label  = "app"
+                },
+              ]
+            },
+            {
+              job_name        = "argo-workflows"
+              scrape_interval = "30s"
+              scheme          = "https"
+              tls_config = {
+                # The chart's controller certificate currently has only a
+                # localhost SAN, while discovery targets the pod IP.
+                # This is an internal metrics-only endpoint; keep the bypass
+                # scoped to this one scrape job.
+                insecure_skip_verify = true
+              }
+              kubernetes_sd_configs = [{
+                role = "pod"
+              }]
+              relabel_configs = [
+                {
+                  action        = "keep"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "argo-workflows-workflow-controller"
+                },
+                {
+                  action        = "keep"
+                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+                  regex         = "true"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+                  target_label  = "__metrics_path__"
+                  regex         = "(.+)"
                 },
                 {
                   action        = "replace"
