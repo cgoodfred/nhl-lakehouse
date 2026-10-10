@@ -51,8 +51,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 5,
       "options": { "legend": { "calcs": ["mean", "lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, name) (rate(argo_workflows_workflowtemplate_runtime_bucket{namespace=~\"$namespace\"}[15m])))", "legendFormat": "{{name}} p95", "range": true, "refId": "A" }],
-      "title": "WorkflowTemplate runtime p95",
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, name) (rate(argo_workflows_workflowtemplate_runtime_bucket{namespace=~\"$namespace\"}[7d])))", "legendFormat": "{{name}} p95 (7d)", "range": true, "refId": "A" }],
+      "title": "WorkflowTemplate runtime p95 (7d)",
       "type": "timeseries"
     },
     {
@@ -116,7 +116,7 @@
   "schemaVersion": 41,
   "tags": ["nhl-lakehouse", "argo", "pipelines"],
   "templating": { "list": [{ "allValue": ".+", "current": { "text": "lakehouse", "value": "lakehouse" }, "includeAll": true, "label": "Namespace", "name": "namespace", "options": [{ "selected": true, "text": "lakehouse", "value": "lakehouse" }], "query": "lakehouse", "refresh": 1, "regex": "", "sort": 1, "type": "custom" }] },
-  "time": { "from": "now-24h", "to": "now" },
+  "time": { "from": "now-7d", "to": "now" },
   "timezone": "browser",
   "title": "NHL Lakehouse Pipeline",
   "uid": "nhl-lakehouse-pipeline",
