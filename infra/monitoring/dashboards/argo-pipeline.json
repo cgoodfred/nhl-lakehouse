@@ -21,8 +21,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
       "id": 2,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum by (phase) (increase(argo_workflows_total_count{namespace=~\"$namespace\"}[24h]))", "legendFormat": "{{phase}}", "range": true, "refId": "A" }],
-      "title": "Workflow outcomes (24h)",
+      "targets": [{ "editorMode": "code", "expr": "sum by (phase) (increase(argo_workflows_count_total{namespace=~\"$namespace\"}[7d]))", "legendFormat": "{{phase}}", "range": true, "refId": "A" }],
+      "title": "Workflow outcomes (7d)",
       "type": "timeseries"
     },
     {
@@ -61,8 +61,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 6,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_workflowtemplate_triggered_total{namespace=~\"$namespace\",name=\"scheduled-pipeline\",phase=\"New\"}[24h]))", "legendFormat": "Pipeline starts", "range": true, "refId": "A" }],
-      "title": "Pipeline starts (24h)",
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_workflowtemplate_triggered_total{namespace=~\"$namespace\",name=\"scheduled-pipeline\",phase=\"New\"}[7d]))", "legendFormat": "Pipeline starts", "range": true, "refId": "A" }],
+      "title": "Pipeline starts (7d)",
       "type": "timeseries"
     },
     {
@@ -90,7 +90,7 @@
       "gridPos": { "h": 5, "w": 8, "x": 16, "y": 24 },
       "id": 9,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_error_count{namespace=~\"$namespace\"}[1h]))", "legendFormat": "Controller errors", "range": true, "refId": "A" }],
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(argo_workflows_error_count_total{namespace=~\"$namespace\"}[1h]))", "legendFormat": "Controller errors", "range": true, "refId": "A" }],
       "title": "Argo controller errors (1h)",
       "type": "stat"
     },
