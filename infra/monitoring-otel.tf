@@ -253,6 +253,12 @@ locals {
                 },
                 {
                   action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scheme"]
+                  target_label  = "__scheme__"
+                  regex         = "(https?)"
+                },
+                {
+                  action        = "replace"
                   source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
                   target_label  = "__address__"
                   regex         = "([^:]+)(?::\\d+)?;(\\d+)"
