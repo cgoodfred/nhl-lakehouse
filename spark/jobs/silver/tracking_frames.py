@@ -35,7 +35,7 @@ for the same constraints (no `X | None` runtime exprs, no `datetime.UTC`).
 
 from __future__ import annotations
 
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
     col,
     current_timestamp,
@@ -62,22 +62,16 @@ BRONZE_PATH = "s3a://nhl-bronze/tracking"
 BRONZE_GLOB = f"{BRONZE_PATH}/season=*/game_id=*/event_id=*/tracking.json"
 
 
-def tracking_paths(game_ids: list[int]) -> list[str]:
-    """Build partition-pruned tracking paths for the affected games."""
-
-    return [
-        f"{BRONZE_PATH}/season=*/game_id={game_id}/event_id=*/tracking.json"
-        for game_id in game_ids
-    ]
-
-
-def refreshed_tracking_paths(spark, game_ids: list[int]) -> list[str]:
+def refreshed_tracking_paths(spark: SparkSession, game_ids: list[int]) -> list[str]:
     """Return only tracking objects successfully written by tracking-ingest.
 
     PBP refreshes can include preseason games or goals without a tracking URL.
     Those games are valid inputs for the rest of the pipeline but have no
     tracking object to read. The attempts table is the authoritative bridge
     between per-event fetch outcomes and bronze object keys.
+
+    The caller must run tracking-ingest first so this table reflects the
+    current impact scope; the scheduled DAG enforces that ordering.
     """
 
     if not game_ids or not spark.catalog.tableExists("nhl.silver.tracking_attempts"):
