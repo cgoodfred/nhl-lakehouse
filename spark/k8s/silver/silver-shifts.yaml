@@ -8,7 +8,7 @@ spec:
   pythonVersion: "3"
   mode: cluster
   # The Spark image pin workflow updates this SHA after a Spark image build.
-  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:2c442a9dd66bda32738fd4172b6b39e71f9ddf06
+  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:8bec1af86dddfb2113d698ba6751896a0992c9da
   imagePullPolicy: Always
   mainApplicationFile: local:///opt/jobs/silver/shifts.py
   arguments: [--processing-mode, full]
