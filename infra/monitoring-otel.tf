@@ -27,7 +27,7 @@ locals {
     "k8s[.]pod[.](cpu[.](time|usage)|memory[.]working_set|filesystem[.]usage)",
 
     # Scheduled ingestion and the services it depends on.
-    "argo_workflows_(cronworkflows_triggered_total|error_count|gauge|is_leader|operation_duration_seconds(_(bucket|sum|count))?|queue_depth_gauge|total_count|workers_busy_count|workflow_condition|workflowtemplate_runtime(_(bucket|sum|count))?|workflowtemplate_triggered_total)",
+    "argo_workflows_(cronworkflows_triggered_total|error_count(_total)?|gauge|is_leader|operation_duration_seconds(_(bucket|sum|count))?|queue_depth_gauge|(total_count|count_total)|workers_busy_count|workflow_condition|workflowtemplate_runtime(_(bucket|sum|count))?|workflowtemplate_triggered_total)",
     "SeaweedFS_(master_(is_leader|leader_changes_total|pick_for_write_error_total|volume_layout_(crowded|writable))|volumeServer_(disk_error_status|file_(read|write)_failures_total|master_disconnections_total|read_only_volumes|total_disk_size|volumes)|s3_bucket_(object_count|physical_size_bytes|size_bytes)|s3_request_(seconds_(count|sum)|total)|filer_request_(seconds_(count|sum)|total))",
     "pg_(up|exporter_last_scrape_(duration_seconds|error)|database_size_bytes|locks_count|replication_(is_replica|lag_seconds|last_replay_seconds)|stat_database_(numbackends|xact_commit|xact_rollback|blks_read|blks_hit|deadlocks|temp_bytes))",
     "axum_http_requests_(duration_seconds_(count|sum)|pending|total)",
