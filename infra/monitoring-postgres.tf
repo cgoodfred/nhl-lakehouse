@@ -56,6 +56,10 @@ resource "kubernetes_deployment" "monitoring_lakekeeper_postgres_exporter" {
           name              = "postgres-exporter"
           image             = "quay.io/prometheuscommunity/postgres-exporter:v0.18.1"
           image_pull_policy = "IfNotPresent"
+          # WAL metrics are not consumed by our allowlist and require
+          # pg_monitor access for pg_ls_waldir(). Keep the exporter role
+          # least-privileged and avoid a recurring collector error.
+          args = ["--no-collector.wal"]
           port {
             name           = "metrics"
             container_port = 9187
@@ -124,6 +128,10 @@ resource "kubernetes_deployment" "monitoring_argo_postgres_exporter" {
           name              = "postgres-exporter"
           image             = "quay.io/prometheuscommunity/postgres-exporter:v0.18.1"
           image_pull_policy = "IfNotPresent"
+          # WAL metrics are not consumed by our allowlist and require
+          # pg_monitor access for pg_ls_waldir(). Keep the exporter role
+          # least-privileged and avoid a recurring collector error.
+          args = ["--no-collector.wal"]
           port {
             name           = "metrics"
             container_port = 9187
