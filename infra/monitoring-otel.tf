@@ -246,6 +246,11 @@ locals {
                   regex         = "true"
                 },
                 {
+                  action        = "drop"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "argo-workflows-workflow-controller"
+                },
+                {
                   action        = "replace"
                   source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
                   target_label  = "__metrics_path__"
@@ -256,6 +261,64 @@ locals {
                   source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scheme"]
                   target_label  = "__scheme__"
                   regex         = "(https?)"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+                  target_label  = "__address__"
+                  regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+                  replacement   = "$1:$2"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "node"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  target_label  = "app"
+                },
+              ]
+            },
+            {
+              job_name        = "argo-workflows"
+              scrape_interval = "30s"
+              scheme          = "https"
+              tls_config = {
+                # The chart's controller certificate is trusted by the Argo
+                # service but has no pod-IP SAN. This job targets pod IPs.
+                insecure_skip_verify = true
+              }
+              kubernetes_sd_configs = [{
+                role = "pod"
+              }]
+              relabel_configs = [
+                {
+                  action        = "keep"
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "argo-workflows-workflow-controller"
+                },
+                {
+                  action        = "keep"
+                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+                  regex         = "true"
+                },
+                {
+                  action        = "replace"
+                  source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+                  target_label  = "__metrics_path__"
+                  regex         = "(.+)"
                 },
                 {
                   action        = "replace"
