@@ -7,7 +7,7 @@ spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
-  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:8bec1af86dddfb2113d698ba6751896a0992c9da
+  image: ghcr.io/cgoodfred/nhl-lakehouse/spark:cc83eb865ba3b081539547ed437adb9a73984358
   imagePullPolicy: Always
   mainApplicationFile: local:///opt/jobs/silver/players.py
   sparkVersion: "3.5.7"
