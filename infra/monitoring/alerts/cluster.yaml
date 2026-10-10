@@ -125,46 +125,41 @@ groups:
     interval: 1m
     rules:
       - alert: ArgoWorkflowFailed
-        expr: sum by (namespace, name) (increase(argo_workflows_workflowtemplate_triggered_total{phase="Failed"}[15m])) > 0
+        expr: sum by (namespace) (increase(argo_workflows_count_total{phase=~"Failed|Error"}[15m])) > 0
         for: 1m
         labels:
           severity: critical
+          component: argo
         annotations:
-          summary: Argo workflow {{ $labels.namespace }}/{{ $labels.name }} failed
-          description: An Argo workflow template has entered Failed during the last 15 minutes.
-
-      - alert: ArgoWorkflowRunningTooLong
-        expr: sum(argo_workflows_gauge{status="Running"}) > 0
-        for: 2h
-        labels:
-          severity: warning
-        annotations:
-          summary: Argo workflow has been running for more than two hours
-          description: At least one workflow remains Running continuously; inspect the Argo DAG for a stuck step or SparkApplication.
+          summary: Argo workflow failure in {{ $labels.namespace }}
+          description: A workflow entered Failed or Error during the last 15 minutes; inspect the Argo DAG and failed Spark step.
 
       - alert: ScheduledPipelineMissing
-        expr: sum(increase(argo_workflows_workflowtemplate_triggered_total{name="scheduled-pipeline",phase="New"}[26h])) < 1
+        expr: (sum(increase(argo_workflows_workflowtemplate_triggered_total{name="scheduled-pipeline",phase="New"}[26h])) < 1) or on() absent(argo_workflows_workflowtemplate_triggered_total{name="scheduled-pipeline"})
         for: 10m
         labels:
-          severity: warning
+          severity: critical
+          component: argo
         annotations:
           summary: Scheduled NHL pipeline has not started in 26 hours
           description: No scheduled-pipeline trigger was observed during the expected daily operating window.
 
       - alert: ArgoWorkflowQueueBacklog
-        expr: sum(argo_workflows_queue_depth_gauge{queue_name="workflow_queue"}) > 0
+        expr: sum(argo_workflows_queue_depth_gauge{queue_name="workflow_queue"}) > 5
         for: 15m
         labels:
           severity: warning
+          component: argo
         annotations:
           summary: Argo workflow queue has a sustained backlog
-          description: The workflow queue has been non-empty for 15 minutes; inspect controller workers and namespace quota.
+          description: More than five workflows have been queued for 15 minutes; inspect controller workers and namespace quota.
 
       - alert: ArgoControllerErrors
         expr: sum(increase(argo_workflows_error_count_total[15m])) > 0
         for: 5m
         labels:
           severity: warning
+          component: argo
         annotations:
           summary: Argo controller reported errors
           description: The workflow controller has reported one or more errors during the last 15 minutes.
