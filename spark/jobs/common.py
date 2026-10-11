@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
-from pyspark.sql import SparkSession
+from pyspark.sql import Column, SparkSession
+from pyspark.sql.functions import when
 
 
 def get_spark(app_name: str) -> SparkSession:
@@ -15,6 +16,34 @@ def get_spark(app_name: str) -> SparkSession:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.gold")
     return spark
+
+
+def goal_tracking_status_expr(
+    ppt_replay_url: Column,
+    fetch_status: Column,
+    sequence_frames: Column,
+    actual_frames: Column,
+) -> Column:
+    """Canonical per-goal tracking-state expression shared by Gold and ops."""
+
+    return (
+        when(ppt_replay_url.isNull(), "no_url")
+        .when(
+            (fetch_status == "success") & sequence_frames.isNotNull(),
+            "available",
+        )
+        .when(
+            (fetch_status == "success") & (actual_frames > 0),
+            "pending_gold_sequence_rebuild",
+        )
+        .when(
+            (fetch_status == "success") & actual_frames.isNull(),
+            "pending_silver_rebuild",
+        )
+        .when(fetch_status == "http_404", "not_tracked")
+        .when(fetch_status.isNotNull(), "fetch_failed")
+        .otherwise("not_attempted")
+    )
 
 
 @dataclass
@@ -37,21 +66,32 @@ def processing_arguments():
     return args
 
 
-def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
-    """Load the compact ingest manifest and return only refreshed source paths."""
+def impact_manifest_path(manifest_key: str) -> str:
+    """Return an S3A URI for either a bucket-relative key or an S3 URI."""
 
-    path = (
+    return (
         manifest_key
         if manifest_key.startswith("s3")
         else "s3a://nhl-bronze/" + manifest_key.lstrip("/")
     )
+
+
+def load_impact_manifest(spark: SparkSession, manifest_key: str) -> dict:
+    """Load one pretty-printed ingest impact manifest as a Python mapping."""
+
+    path = impact_manifest_path(manifest_key)
     # Ingest writes impact manifests with json.MarshalIndent. Without
     # multiLine, Spark treats each line as a separate JSON record and the
     # scope fields become null, causing an incremental job to silently no-op.
     row = spark.read.option("multiLine", "true").json(path).first()
     if row is None:
         raise ValueError(f"impact manifest is empty: {path}")
-    payload = row.asDict(recursive=True)
+    return row.asDict(recursive=True)
+
+
+def impact_scope_from_payload(payload: dict) -> ImpactScope:
+    """Project the fields needed by incremental transforms from a manifest."""
+
     objects = [str(value) for value in (payload.get("objects") or [])]
     games = payload.get("games") or []
     pbp_game_ids = sorted(
@@ -78,6 +118,12 @@ def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
             "s3a://nhl-bronze/" + key for key in objects if key.startswith("shift-charts/")
         ],
     )
+
+
+def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
+    """Load the compact ingest manifest and return only refreshed source paths."""
+
+    return impact_scope_from_payload(load_impact_manifest(spark, manifest_key))
 
 
 def source_paths(scope, full_path: str, kind: str) -> list[str]:

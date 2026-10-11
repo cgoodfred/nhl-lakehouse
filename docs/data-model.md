@@ -14,6 +14,7 @@ No schema enforcement; consumers read as text and parse. Paths:
 | `play-by-play/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` | Per-game envelope with `plays[]` and `rosterSpots[]` arrays | `ingest` Go CLI |
 | `shift-charts/season=<YYYYYYYY>/date=<YYYY-MM-DD>/game_<id>.json` | Raw NHL shift-chart response for a completed regular-season or playoff game | `ingest` Go CLI |
 | `tracking/season=<YYYYYYYY>/game_id=<id>/event_id=<id>/tracking.json` | Array of tracking frames (~10 Hz per goal) | `spark/jobs/bronze/tracking_ingest.py` |
+| `_runs/run=<runID>/impact.json` | Rolling-window object and per-game status scope consumed by incremental transforms and the final validator | `ingest` Go CLI |
 | `_runs/run=<runID>/failures.json` | Per-run ingest failure manifest | `ingest` Go CLI |
 
 ## Silver

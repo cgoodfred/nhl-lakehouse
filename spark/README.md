@@ -12,6 +12,7 @@ spark/
     common.py         # shared helpers (get_spark, etc.)
     silver/           # bronze → silver transforms
     gold/             # silver → gold transforms (added in phase 2)
+    ops/              # bounded operational validation jobs
   k8s/
     silver/           # SparkApplication manifests, one per silver table
     gold/             # SparkApplication manifests, one per gold table
@@ -89,8 +90,21 @@ For reproducible runs, pin `spec.image` to an immutable SHA tag (`ghcr.io/cgoodf
 | Job manifest | PySpark | Target table | Source |
 |---|---|---|---|
 | `gold/gold-player-shots.yaml` | `gold/player_shots.py` | `nhl.gold.player_shots` (partitioned by `season`) | `silver.plays` ⨝ `silver.games` ⨝ `silver.players` ⨝ `silver.teams` filtered to goals with valid coords |
+| `gold/gold-goal-tracking-sequences.yaml` | `gold/goal_tracking_sequences.py` | `nhl.gold.goal_tracking_sequences` (partitioned by `season`) | `silver.tracking_frames` grouped into per-goal arrays |
+| `gold/gold-goal-tracking-status.yaml` | `gold/goal_tracking_status.py` | `nhl.gold.goal_tracking_status` | goal plays reconciled with attempts, frames, and sequences |
 
 All gold jobs depend on the silver layer being populated.
+
+### Operations
+
+`ops/validate_pipeline.py` is the final scheduled-pipeline correctness gate.
+It accepts the same `--impact-manifest-key` as incremental Silver jobs and
+limits row-level checks to that rolling run. It validates bronze object
+existence, impacted Silver coverage and logical-key uniqueness, completed-game
+shift coverage, Iceberg pre-write row-count/freshness invariants, and the Gold
+tracking state machine. `--minimum-row-ratio` controls the pre-write baseline
+guard and defaults to `0.80`. Any failed check makes the SparkApplication and
+its parent Argo Workflow fail.
 
 ## Incremental silver mode
 
