@@ -17,7 +17,12 @@ from dataclasses import dataclass
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, count, lit, when
 
-from common import get_spark, load_impact_manifest, processing_arguments
+from common import (
+    get_spark,
+    goal_tracking_status_expr,
+    load_impact_manifest,
+    processing_arguments,
+)
 
 SILVER_TABLES = (
     "nhl.silver.games",
@@ -35,7 +40,6 @@ GOLD_TABLES = (
     "nhl.gold.goal_tracking_status",
 )
 REQUIRED_TABLES = SILVER_TABLES + GOLD_TABLES
-FINAL_STATES = ("FINAL", "OFF", "OVER")
 EXPLICIT_NO_SHIFT_DATA = ("unavailable", "no_data", "not_available")
 
 
@@ -72,7 +76,16 @@ class ImpactManifest:
 class SnapshotInfo:
     committed_at: dt.datetime
     total_records: int
-    previous_total_records: int | None
+    baseline_total_records: int | None
+
+
+@dataclass(frozen=True)
+class SnapshotRecord:
+    snapshot_id: int
+    parent_id: int | None
+    operation: str
+    committed_at: dt.datetime
+    total_records: int | None
 
 
 @dataclass(frozen=True)
@@ -210,24 +223,25 @@ def missing_shift_coverage(
 ) -> list[int]:
     """Find supported completed games older than 24h with no shift rows."""
 
-    unavailable = {
+    shift_eligible = {
         game.game_id
         for game in manifest.games
-        if game.shift_status in EXPLICIT_NO_SHIFT_DATA
+        if game.shift_status != "not_eligible"
+        and game.shift_status not in EXPLICIT_NO_SHIFT_DATA
     }
+    if not shift_eligible:
+        return []
     cutoff = now - dt.timedelta(hours=24)
     eligible = {
         int(row.game_id)
         for row in games.where(
-            col("game_id").isin(manifest.game_ids)
-            & col("game_type").isin(2, 3)
-            & col("game_state").isin(*FINAL_STATES)
+            col("game_id").isin(sorted(shift_eligible))
             & (col("start_time_utc") < lit(cutoff))
         )
         .select("game_id")
         .distinct()
         .collect()
-    } - unavailable
+    }
     if not eligible:
         return []
     covered = {
@@ -275,20 +289,12 @@ def tracking_reconciliation_issues(
             "season",
             "game_id",
             "event_id",
-            when(col("ppt_replay_url").isNull(), "no_url")
-            .when((col("status") == "success") & col("sequence_frames").isNotNull(), "available")
-            .when(
-                (col("status") == "success") & (col("actual_frames") > 0),
-                "pending_gold_sequence_rebuild",
-            )
-            .when(
-                (col("status") == "success") & col("actual_frames").isNull(),
-                "pending_silver_rebuild",
-            )
-            .when(col("status") == "http_404", "not_tracked")
-            .when(col("status").isNotNull(), "fetch_failed")
-            .otherwise("not_attempted")
-            .alias("expected_status"),
+            goal_tracking_status_expr(
+                col("ppt_replay_url"),
+                col("status"),
+                col("sequence_frames"),
+                col("actual_frames"),
+            ).alias("expected_status"),
             col("actual_frames").alias("expected_frame_count"),
             lit(True).alias("expected_present"),
         )
@@ -301,16 +307,17 @@ def tracking_reconciliation_issues(
         col("frame_count").alias("actual_frame_count"),
         lit(True).alias("actual_present"),
     )
-    mismatches = (
-        expected.join(actual, ["season", "game_id", "event_id"], "full")
-        .where(
-            col("expected_present").isNull()
-            | col("actual_present").isNull()
-            | ~col("expected_status").eqNullSafe(col("actual_status"))
-            | ~col("expected_frame_count").eqNullSafe(col("actual_frame_count"))
-        )
-        .collect()
+    comparison = expected.join(actual, ["season", "game_id", "event_id"], "full")
+    mismatch_condition = (
+        col("expected_present").isNull()
+        | col("actual_present").isNull()
+        | ~col("expected_status").eqNullSafe(col("actual_status"))
+        | ~col("expected_frame_count").eqNullSafe(col("actual_frame_count"))
     )
+    pending_condition = when(
+        col("expected_status").startswith("pending_"), lit(True)
+    ).otherwise(lit(False))
+    mismatches = comparison.where(mismatch_condition & ~pending_condition).collect()
     issues = [
         (
             f"game_id={row.game_id}, event_id={row.event_id}, "
@@ -323,7 +330,7 @@ def tracking_reconciliation_issues(
     # These states are useful while individual jobs are running, but neither
     # is valid after the scheduled tracking frames and Gold sequence stages
     # have both completed successfully.
-    pending = expected.where(col("expected_status").startswith("pending_")).collect()
+    pending = comparison.where(pending_condition).collect()
     issues.extend(
         (
             f"game_id={row.game_id}, event_id={row.event_id}, "
@@ -356,24 +363,67 @@ def _summary_total(summary: dict | None) -> int | None:
     return int(summary["total-records"])
 
 
+def row_count_baseline(
+    snapshots: dict[int, SnapshotRecord], current_snapshot_id: int
+) -> SnapshotRecord | None:
+    """Return the state to compare with the current write.
+
+    Incremental game-keyed jobs commit DELETE then APPEND. In that case the
+    APPEND's direct parent is only the mid-write state, so compare against the
+    DELETE's parent (the pre-run table). A failed/empty append that leaves the
+    DELETE current still compares directly with its pre-delete parent.
+    """
+
+    current = snapshots.get(current_snapshot_id)
+    if current is None:
+        raise ValueError(f"current snapshot {current_snapshot_id} is missing")
+    parent = snapshots.get(current.parent_id) if current.parent_id is not None else None
+    if (
+        parent is not None
+        and current.operation.lower() == "append"
+        and parent.operation.lower() == "delete"
+    ):
+        return snapshots.get(parent.parent_id) if parent.parent_id is not None else None
+    return parent
+
+
 def snapshot_info(spark: SparkSession, table: str) -> SnapshotInfo:
-    snapshots = (
+    main_ref = (
+        spark.read.table(f"{table}.refs")
+        .where(col("name") == "main")
+        .select("snapshot_id")
+        .first()
+    )
+    if main_ref is None:
+        raise ValueError(f"{table} has no main Iceberg reference")
+    rows = (
         spark.read.table(f"{table}.snapshots")
-        .select("committed_at", "summary")
-        .orderBy(col("committed_at").desc())
-        .limit(2)
+        .select("snapshot_id", "parent_id", "operation", "committed_at", "summary")
         .collect()
     )
-    if not snapshots:
+    if not rows:
         raise ValueError(f"{table} has no Iceberg snapshots")
-    current_total = _summary_total(snapshots[0].summary)
+    snapshots = {
+        int(row.snapshot_id): SnapshotRecord(
+            snapshot_id=int(row.snapshot_id),
+            parent_id=int(row.parent_id) if row.parent_id is not None else None,
+            operation=str(row.operation),
+            committed_at=row.committed_at,
+            total_records=_summary_total(row.summary),
+        )
+        for row in rows
+    }
+    current = snapshots.get(int(main_ref.snapshot_id))
+    if current is None:
+        raise ValueError(f"{table} main snapshot is absent from snapshot metadata")
+    current_total = current.total_records
     if current_total is None:
         current_total = spark.read.table(table).count()
-    previous_total = _summary_total(snapshots[1].summary) if len(snapshots) > 1 else None
+    baseline = row_count_baseline(snapshots, current.snapshot_id)
     return SnapshotInfo(
-        committed_at=snapshots[0].committed_at,
+        committed_at=current.committed_at,
         total_records=current_total,
-        previous_total_records=previous_total,
+        baseline_total_records=baseline.total_records if baseline is not None else None,
     )
 
 
@@ -478,10 +528,10 @@ def run_validation(
             "pipeline-validation "
             f"table={table} rows={info.total_records} committed_at={info.committed_at.isoformat()}"
         )
-        previous = info.previous_total_records
-        if previous is not None and info.total_records < previous * minimum_row_ratio:
+        baseline = info.baseline_total_records
+        if baseline is not None and info.total_records < baseline * minimum_row_ratio:
             row_drop_issues.append(
-                f"{table}: current={info.total_records}, previous={previous}, "
+                f"{table}: current={info.total_records}, baseline={baseline}, "
                 f"minimum_ratio={minimum_row_ratio}"
             )
     _record(results, "iceberg_snapshot_metadata", snapshot_issues, f"tables={len(snapshots)}")

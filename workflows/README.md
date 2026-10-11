@@ -101,7 +101,7 @@ The final `ops/validate_pipeline.py` Spark job uses the ingest impact manifest
 as its scope. It verifies that every schedule and refreshed source object
 exists, impacted Silver logical keys remain unique, completed supported games
 have shift coverage, table row counts have not collapsed relative to their
-previous Iceberg snapshots, Gold snapshots are newer than their dependencies,
+pre-write Iceberg baseline, Gold snapshots are newer than their dependencies,
 and tracking status rows match the state machine. A failed check fails the
 Workflow after logging the exact affected keys.
 

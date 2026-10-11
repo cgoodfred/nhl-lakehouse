@@ -33,9 +33,9 @@ first for playback.
 """
 
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, count, current_timestamp, when
+from pyspark.sql.functions import col, count, current_timestamp
 
-from common import get_spark
+from common import get_spark, goal_tracking_status_expr
 
 
 def transform_goal_tracking_status(
@@ -89,34 +89,12 @@ def transform_goal_tracking_status(
             col("p.event_id").alias("event_id"),
             col("p.season").alias("season"),
             col("p.ppt_replay_url").alias("ppt_replay_url"),
-            # CASE order matters: no_url first; then success + gold/silver
-            # freshness states before generic status checks.
-            when(
-                col("p.ppt_replay_url").isNull(),
-                "no_url",
-            )
-            .when(
-                (col("ta.status") == "success") & col("gs.sequence_frames").isNotNull(),
-                "available",
-            )
-            .when(
-                (col("ta.status") == "success") & (col("fc.actual_frames") > 0),
-                "pending_gold_sequence_rebuild",
-            )
-            .when(
-                (col("ta.status") == "success") & col("fc.actual_frames").isNull(),
-                "pending_silver_rebuild",
-            )
-            .when(
-                col("ta.status") == "http_404",
-                "not_tracked",
-            )
-            .when(
-                col("ta.status").isNotNull(),
-                "fetch_failed",
-            )
-            .otherwise("not_attempted")
-            .alias("tracking_status"),
+            goal_tracking_status_expr(
+                col("p.ppt_replay_url"),
+                col("ta.status"),
+                col("gs.sequence_frames"),
+                col("fc.actual_frames"),
+            ).alias("tracking_status"),
             col("fc.actual_frames").alias("frame_count"),
             col("ta.attempted_at"),
             col("ta.status").alias("fetch_status"),

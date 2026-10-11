@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
-from pyspark.sql import SparkSession
+from pyspark.sql import Column, SparkSession
+from pyspark.sql.functions import when
 
 
 def get_spark(app_name: str) -> SparkSession:
@@ -15,6 +16,34 @@ def get_spark(app_name: str) -> SparkSession:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.silver")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nhl.gold")
     return spark
+
+
+def goal_tracking_status_expr(
+    ppt_replay_url: Column,
+    fetch_status: Column,
+    sequence_frames: Column,
+    actual_frames: Column,
+) -> Column:
+    """Canonical per-goal tracking-state expression shared by Gold and ops."""
+
+    return (
+        when(ppt_replay_url.isNull(), "no_url")
+        .when(
+            (fetch_status == "success") & sequence_frames.isNotNull(),
+            "available",
+        )
+        .when(
+            (fetch_status == "success") & (actual_frames > 0),
+            "pending_gold_sequence_rebuild",
+        )
+        .when(
+            (fetch_status == "success") & actual_frames.isNull(),
+            "pending_silver_rebuild",
+        )
+        .when(fetch_status == "http_404", "not_tracked")
+        .when(fetch_status.isNotNull(), "fetch_failed")
+        .otherwise("not_attempted")
+    )
 
 
 @dataclass

@@ -101,8 +101,8 @@ All gold jobs depend on the silver layer being populated.
 It accepts the same `--impact-manifest-key` as incremental Silver jobs and
 limits row-level checks to that rolling run. It validates bronze object
 existence, impacted Silver coverage and logical-key uniqueness, completed-game
-shift coverage, Iceberg snapshot row-count/freshness invariants, and the Gold
-tracking state machine. `--minimum-row-ratio` controls the prior-snapshot
+shift coverage, Iceberg pre-write row-count/freshness invariants, and the Gold
+tracking state machine. `--minimum-row-ratio` controls the pre-write baseline
 guard and defaults to `0.80`. Any failed check makes the SparkApplication and
 its parent Argo Workflow fail.
 

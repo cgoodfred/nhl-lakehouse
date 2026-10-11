@@ -13,11 +13,13 @@ from pyspark.sql.types import (
 )
 
 from validate_pipeline import (
+    SnapshotRecord,
     duplicate_keys,
     expected_refreshed_object_keys,
     expected_schedule_keys,
     missing_shift_coverage,
     parse_impact_manifest,
+    row_count_baseline,
     tracking_reconciliation_issues,
 )
 
@@ -99,6 +101,18 @@ def test_old_completed_games_require_shift_rows(spark):
     assert missing_shift_coverage(games, covered, manifest, _NOW) == []
 
 
+def test_row_count_baseline_skips_mid_write_delete_snapshot():
+    committed = dt.datetime(2026, 10, 10)
+    snapshots = {
+        1: SnapshotRecord(1, None, "append", committed, 100_000),
+        2: SnapshotRecord(2, 1, "delete", committed, 80_000),
+        3: SnapshotRecord(3, 2, "append", committed, 80_000),
+    }
+
+    assert row_count_baseline(snapshots, 3) == snapshots[1]
+    assert row_count_baseline(snapshots, 2) == snapshots[1]
+
+
 def test_tracking_status_reconciles_state_machine_and_frame_counts(spark):
     plays = spark.createDataFrame(
         [
@@ -154,7 +168,7 @@ def test_tracking_status_reconciles_state_machine_and_frame_counts(spark):
     assert "actual=pending_silver_rebuild/2" in issues[0]
 
 
-def test_tracking_pending_state_is_invalid_at_pipeline_end(spark):
+def test_tracking_pending_state_is_reported_once_even_when_actual_differs(spark):
     plays = spark.createDataFrame(
         [(_SEASON, _GAME, 20, "goal", "https://example.test/tracking.json")],
         "season int, game_id long, event_id long, type_desc_key string, ppt_replay_url string",
@@ -168,7 +182,7 @@ def test_tracking_pending_state_is_invalid_at_pipeline_end(spark):
         [], "season int, game_id long, event_id long, frame_count int"
     )
     statuses = spark.createDataFrame(
-        [(_SEASON, _GAME, 20, "pending_silver_rebuild", None)],
+        [(_SEASON, _GAME, 20, "no_url", None)],
         StructType(
             [
                 StructField("season", IntegerType()),
