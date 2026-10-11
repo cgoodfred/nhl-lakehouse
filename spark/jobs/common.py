@@ -37,21 +37,32 @@ def processing_arguments():
     return args
 
 
-def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
-    """Load the compact ingest manifest and return only refreshed source paths."""
+def impact_manifest_path(manifest_key: str) -> str:
+    """Return an S3A URI for either a bucket-relative key or an S3 URI."""
 
-    path = (
+    return (
         manifest_key
         if manifest_key.startswith("s3")
         else "s3a://nhl-bronze/" + manifest_key.lstrip("/")
     )
+
+
+def load_impact_manifest(spark: SparkSession, manifest_key: str) -> dict:
+    """Load one pretty-printed ingest impact manifest as a Python mapping."""
+
+    path = impact_manifest_path(manifest_key)
     # Ingest writes impact manifests with json.MarshalIndent. Without
     # multiLine, Spark treats each line as a separate JSON record and the
     # scope fields become null, causing an incremental job to silently no-op.
     row = spark.read.option("multiLine", "true").json(path).first()
     if row is None:
         raise ValueError(f"impact manifest is empty: {path}")
-    payload = row.asDict(recursive=True)
+    return row.asDict(recursive=True)
+
+
+def impact_scope_from_payload(payload: dict) -> ImpactScope:
+    """Project the fields needed by incremental transforms from a manifest."""
+
     objects = [str(value) for value in (payload.get("objects") or [])]
     games = payload.get("games") or []
     pbp_game_ids = sorted(
@@ -78,6 +89,12 @@ def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
             "s3a://nhl-bronze/" + key for key in objects if key.startswith("shift-charts/")
         ],
     )
+
+
+def load_impact_scope(spark: SparkSession, manifest_key: str) -> ImpactScope:
+    """Load the compact ingest manifest and return only refreshed source paths."""
+
+    return impact_scope_from_payload(load_impact_manifest(spark, manifest_key))
 
 
 def source_paths(scope, full_path: str, kind: str) -> list[str]:

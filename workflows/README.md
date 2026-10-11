@@ -8,7 +8,7 @@ Argo platform configured by `infra/argo-workflows.tf`; this directory holds the 
 workflows/
   templates/      # WorkflowTemplate definitions — parameterized, reusable
   workflows/      # One-shot Workflow definitions that submit templates
-  cron/           # Scheduled CronWorkflows (V2)
+  cron/           # Scheduled CronWorkflow definitions
 ```
 
 ## Day-to-day
@@ -30,7 +30,7 @@ kubectl create -n lakehouse -f workflows/workflows/silver-games-example.yaml
 argo list -n lakehouse
 argo get -n lakehouse <workflow-name>
 
-# Submit the complete pipeline manually while the CronWorkflow is suspended
+# Submit the complete pipeline manually
 argo submit -n lakehouse --from workflowtemplate/scheduled-pipeline --watch
 
 # Inspect or suspend/resume the scheduled trigger
@@ -92,11 +92,18 @@ One-shot Workflow that invokes `silver-full-rebuild`. This is the DAG smoke test
 `templates/ingest-window.yaml` creates a pinned rolling ingest Job.
 `templates/tracking-ingest.yaml` submits the driver-side tracking fetch as a
 managed SparkApplication. `templates/scheduled-pipeline.yaml` composes those
-steps with the core silver rebuild, shifts, and gold tables. The
-`cron/nhl-scheduled-pipeline.yaml` trigger runs twice daily in
-`America/New_York` and is intentionally suspended until a manual run is
-verified. Updating a CronWorkflow does not mutate already-created Workflow
-runs.
+steps with the core silver rebuild, shifts, gold tables, and a final bounded
+pipeline-validation stage. The `cron/nhl-scheduled-pipeline.yaml` trigger runs
+twice daily in `America/New_York` with overlap forbidden. Updating a
+CronWorkflow does not mutate already-created Workflow runs.
+
+The final `ops/validate_pipeline.py` Spark job uses the ingest impact manifest
+as its scope. It verifies that every schedule and refreshed source object
+exists, impacted Silver logical keys remain unique, completed supported games
+have shift coverage, table row counts have not collapsed relative to their
+previous Iceberg snapshots, Gold snapshots are newer than their dependencies,
+and tracking status rows match the state machine. A failed check fails the
+Workflow after logging the exact affected keys.
 
 ## Cleanup
 
@@ -126,6 +133,5 @@ kubectl delete sparkapplication -n lakehouse \
 
 ## Out of scope (V1)
 
-- Pipeline data-quality validation and scheduled-ingestion dashboards (follow-up)
 - Argo Events / push triggers (V2)
 - Exit hooks that write `silver.pipeline_runs` rows (deferred to the pipeline-health-dashboard Phase 2)

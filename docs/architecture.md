@@ -89,10 +89,16 @@ Argo Workflows (`workflows/`) submits SparkApplication CRDs via the `resource:` 
 
 Templates:
 
-- `silver-single-table` — parameterized wrapper (tier, job_name, file_stem, executor sizing).
+- `silver-single-table` — parameterized wrapper (tier, job_name, file_stem, executor sizing) used for Silver, Gold, and operational Spark jobs.
 - `silver-full-rebuild` — 5-node DAG rebuilding the PBP silver tier (games → plays/players/game_rosters/teams). Serialized (`parallelism: 1`) due to a real quota-starvation failure.
+- `scheduled-pipeline` — rolling ingest → incremental Silver → tracking and Gold branches → bounded pipeline validation.
 
-No `CronWorkflow`s yet — schedule triggers are a v2 item. Today everything runs on demand via `argo submit` or `kubectl apply -f workflows/workflows/*.yaml`.
+The OpenTofu-managed `nhl-scheduled-pipeline` CronWorkflow runs at 07:00 and
+19:00 `America/New_York` with `concurrencyPolicy: Forbid`. The final validator
+checks only the ingest manifest's rolling scope for row-level correctness and
+uses Iceberg snapshot metadata for history-wide row-count and freshness guards.
+Validation failure marks the complete Workflow failed after transformed data
+remains available for diagnosis.
 
 ## Auth flow
 

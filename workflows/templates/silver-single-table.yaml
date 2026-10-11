@@ -1,8 +1,8 @@
-# WorkflowTemplate for "run one silver/gold Spark job by submitting its
+# WorkflowTemplate for "run one silver/gold/ops Spark job by submitting its
 # SparkApplication CRD, then wait for it to reach COMPLETED."
 #
 # Parameters:
-#   - tier                  silver | gold
+#   - tier                  silver | gold | ops
 #   - job_name              kebab-case name used in the SparkApplication metadata
 #                           (K8s resource names must be RFC 1123 — no underscores
 #                           allowed). Example: game-rosters

@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir \
 #   /opt/jobs/bronze/<job>.py
 #   /opt/jobs/silver/<table>.py
 #   /opt/jobs/gold/<table>.py
+#   /opt/jobs/ops/<job>.py
 # PYTHONPATH lets jobs in any tier subdir do `from common import get_spark`
 # without needing relative-import package boilerplate.
 COPY jobs/ /opt/jobs/

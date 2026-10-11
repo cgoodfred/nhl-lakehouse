@@ -118,3 +118,23 @@ spec:
                 - {name: executor_core_limit, value: "1"}
                 - {name: executor_instances, value: "1"}
                 - {name: executor_memory, value: 2g}
+
+          # Final correctness gate. It reads only the impact-manifest scope
+          # for row-level checks and fails the Workflow if any reconciliation
+          # invariant is violated. Gold tracking status is transitively after
+          # the tracking sequence branch; player shots is the other terminal
+          # branch, so these dependencies cover the complete DAG.
+          - name: validate-pipeline
+            dependencies: [gold-player-shots, gold-tracking-status]
+            templateRef: {name: silver-single-table, template: run}
+            arguments:
+              parameters:
+                - {name: tier, value: ops}
+                - {name: job_name, value: validate-pipeline}
+                - {name: file_stem, value: validate_pipeline}
+                - {name: executor_cores, value: "1"}
+                - {name: executor_core_limit, value: "1"}
+                - {name: executor_instances, value: "1"}
+                - {name: executor_memory, value: 1g}
+                - {name: processing_mode, value: incremental}
+                - {name: impact_manifest_key, value: "_runs/run={{workflow.name}}/impact.json"}
